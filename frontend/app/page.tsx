@@ -68,14 +68,14 @@ export default function UploadPage() {
 
     return (
         <AppShell>
-            <section className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-6xl flex-col items-center justify-center px-5 py-12 sm:px-8">
+            <section className="mx-auto flex min-h-[calc(100vh-4.25rem)] max-w-6xl flex-col items-center justify-center px-5 py-12 sm:px-8">
                 <div className="w-full max-w-3xl text-center">
-                    <span className="inline-flex items-center gap-2 rounded-full border border-violet-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-violet-700 shadow-sm">
+                    <span className="inline-flex items-center gap-2 rounded-full border border-[#9ed9ee] bg-white px-3.5 py-1.5 text-xs font-semibold text-[#168acd] shadow-sm">
                         <Sparkles size={14} aria-hidden="true" />
                         Gemini-powered script intelligence
                     </span>
                     <h1 className="mx-auto mt-6 max-w-2xl text-4xl font-bold tracking-[-0.045em] text-slate-950 sm:text-5xl">
-                        Turn Scripts Into<br />Cultural Gold
+                        Your screenplay,<br />ready for its next scene
                     </h1>
                     <p className="mx-auto mt-5 max-w-xl text-sm leading-6 text-slate-600 sm:text-base">
                         Upload a screenplay and uncover the moments where cultural references can sharpen performances, visual language, and storytelling.
@@ -88,7 +88,7 @@ export default function UploadPage() {
                     <Feature icon={Clapperboard} label="Better Direction" />
                 </div>
 
-                <div className="mt-8 w-full max-w-3xl rounded-3xl border border-slate-200 bg-white/90 p-5 shadow-[0_18px_60px_rgba(30,35,60,0.08)] backdrop-blur sm:p-8">
+                <div className="mt-8 w-full max-w-3xl rounded-2xl border border-[#c9e1ec] bg-white/95 p-5 shadow-[0_12px_35px_rgba(35,111,145,0.12)] backdrop-blur sm:p-8">
                     <UploadDropzone file={file} error={error} onFile={selectFile} />
                     <div className="mt-5 flex flex-col-reverse items-center justify-between gap-3 sm:flex-row">
                         <button type="button" onClick={useSampleScript} className="text-sm font-semibold text-violet-700 hover:text-violet-900">
@@ -98,7 +98,7 @@ export default function UploadPage() {
                             type="button"
                             onClick={analyzeScript}
                             disabled={!file}
-                            className="w-full rounded-lg bg-violet-700 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-800 disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-auto"
+                            className="w-full rounded-lg bg-[#229ed9] px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#168acd] disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-auto"
                         >
                             Analyze Script
                         </button>

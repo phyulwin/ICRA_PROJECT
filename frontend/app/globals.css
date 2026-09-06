@@ -1,22 +1,22 @@
 /* frontend/app/globals.css */
 @import "tailwindcss";
 
-/* Establish the product palette and reusable surface tokens. */
+/* Establish the Telegram-inspired palette and reusable surface tokens. */
 :root {
-    --navy-950: #111827;
-    --navy-900: #172033;
-    --ink-950: #11162a;
-    --ink-700: #35405d;
-    --ink-500: #68708a;
-    --line: #e1e4ed;
-    --canvas: #f6f7fb;
+    --navy-950: #229ed9;
+    --navy-900: #168acd;
+    --ink-950: #17212b;
+    --ink-700: #52606d;
+    --ink-500: #8493a1;
+    --line: #d7e4ec;
+    --canvas: #e7f3fa;
     --surface: #ffffff;
-    --purple-700: #6d3ce7;
-    --purple-600: #7c4dff;
-    --purple-100: #eee8ff;
-    --green-600: #16a36a;
-    --amber-600: #e58b17;
-    --rose-500: #dc5a68;
+    --purple-700: #229ed9;
+    --purple-600: #38aee0;
+    --purple-100: #dff3fc;
+    --green-600: #36a872;
+    --amber-600: #e5a228;
+    --rose-500: #d95c6a;
 }
 
 /* Normalize the viewport for a calm desktop-first application surface. */
@@ -47,31 +47,148 @@ a {
 }
 
 ::selection {
-    background: #dcd0ff;
+    background: #bfe8f8;
 }
 
 /* Share consistent focus treatment across keyboard-operable controls. */
 :focus-visible {
-    outline: 3px solid rgba(124, 77, 255, 0.28);
+    outline: 3px solid rgba(34, 158, 217, 0.32);
     outline-offset: 2px;
 }
 
-/* Provide a subtle film-workspace background without decorative imagery. */
+/* Give the workspace a quiet Telegram-style chat wallpaper texture. */
 .workspace-bg {
     background:
-        radial-gradient(circle at 13% 8%, rgba(124, 77, 255, 0.07), transparent 25rem),
-        linear-gradient(180deg, #fbfbfe 0%, var(--canvas) 100%);
+        linear-gradient(30deg, rgba(255, 255, 255, 0.35) 12%, transparent 12.5%, transparent 87%, rgba(255, 255, 255, 0.35) 87.5%, rgba(255, 255, 255, 0.35)),
+        linear-gradient(150deg, rgba(255, 255, 255, 0.22) 12%, transparent 12.5%, transparent 87%, rgba(255, 255, 255, 0.22) 87.5%, rgba(255, 255, 255, 0.22)),
+        linear-gradient(180deg, #f2f9fc 0%, var(--canvas) 100%);
+    background-size: 44px 76px, 44px 76px, auto;
+}
+
+/* Keep the existing component vocabulary on the same blue accent. */
+.text-violet-300 {
+    color: #d9f3fc !important;
+}
+
+.text-violet-400 {
+    color: #6fc6e9 !important;
+}
+
+.text-violet-500 {
+    color: #38aee0 !important;
+}
+
+.text-violet-600 {
+    color: #229ed9 !important;
+}
+
+.text-violet-700 {
+    color: #168acd !important;
+}
+
+.text-violet-800 {
+    color: #1178b3 !important;
+}
+
+.text-violet-900,
+.text-violet-950 {
+    color: #0d5f8f !important;
+}
+
+.bg-violet-50 {
+    background-color: #f0faff !important;
+}
+
+.bg-violet-100 {
+    background-color: #dff3fc !important;
+}
+
+.bg-violet-500 {
+    background-color: #38aee0 !important;
+}
+
+.bg-violet-600,
+.bg-violet-700 {
+    background-color: #229ed9 !important;
+}
+
+.bg-violet-800 {
+    background-color: #168acd !important;
+}
+
+.border-violet-100 {
+    border-color: #ccecf8 !important;
+}
+
+.border-violet-200,
+.border-violet-300 {
+    border-color: #9ed9ee !important;
+}
+
+.border-violet-400,
+.border-violet-500 {
+    border-color: #38aee0 !important;
+}
+
+.ring-violet-100 {
+    --tw-ring-color: #dff3fc !important;
+}
+
+.ring-violet-200 {
+    --tw-ring-color: #b8e5f5 !important;
+}
+
+.accent-violet-700 {
+    accent-color: #229ed9 !important;
+}
+
+.from-violet-50 {
+    --tw-gradient-from: #f0faff var(--tw-gradient-from-position) !important;
+}
+
+.to-violet-50 {
+    --tw-gradient-to: #e6f6fc var(--tw-gradient-to-position) !important;
+}
+
+.hover\:text-violet-700:hover {
+    color: #168acd !important;
+}
+
+.hover\:text-violet-900:hover {
+    color: #0d5f8f !important;
+}
+
+.hover\:bg-violet-800:hover {
+    background-color: #168acd !important;
+}
+
+.hover\:border-violet-200:hover {
+    border-color: #9ed9ee !important;
 }
 
 /* Animate indeterminate processing while avoiding false completion claims. */
 @keyframes progress-sweep {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(320%); }
+    0% {
+        transform: translateX(-100%);
+    }
+
+    100% {
+        transform: translateX(320%);
+    }
 }
 
 @keyframes soft-pulse {
-    0%, 100% { opacity: 0.45; transform: scale(0.96); }
-    50% { opacity: 1; transform: scale(1); }
+
+    0%,
+    100% {
+        opacity: 0.45;
+        transform: scale(0.96);
+    }
+
+    50% {
+        opacity: 1;
+        transform: scale(1);
+    }
 }
 
 .progress-sweep {

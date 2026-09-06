@@ -37,7 +37,7 @@ export function UploadDropzone({ file, error, onFile }: UploadDropzoneProps) {
                 onDragLeave={() => setDragging(false)}
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={handleDrop}
-                className={`rounded-2xl border border-dashed px-6 py-10 text-center transition ${dragging ? 'border-violet-500 bg-violet-50' : error ? 'border-rose-300 bg-rose-50/40' : 'border-violet-300 bg-white hover:border-violet-500'}`}
+                className={`rounded-xl border border-dashed px-6 py-10 text-center transition ${dragging ? 'border-violet-500 bg-violet-50' : error ? 'border-rose-300 bg-rose-50/40' : 'border-violet-300 bg-[#fbfeff] hover:border-violet-500'}`}
             >
                 <input
                     ref={inputRef}
@@ -49,7 +49,7 @@ export function UploadDropzone({ file, error, onFile }: UploadDropzoneProps) {
                 />
 
                 {file ? (
-                    <div className="mx-auto flex max-w-md items-center gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-left">
+                    <div className="mx-auto flex max-w-md items-center gap-4 rounded-lg border border-[#c9e1ec] bg-[#f2f9fc] p-4 text-left">
                         <span className="grid size-11 shrink-0 place-items-center rounded-lg bg-violet-100 text-violet-700">
                             <FileText size={22} aria-hidden="true" />
                         </span>

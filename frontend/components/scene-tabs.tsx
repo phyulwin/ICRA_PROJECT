@@ -18,7 +18,7 @@ export function SceneTabs({ projectId, sceneId, active, queryCount }: SceneTabsP
     ] as const;
 
     return (
-        <nav aria-label="Scene detail sections" className="flex gap-6 border-b border-slate-200">
+        <nav aria-label="Scene detail sections" className="flex gap-6 border-b border-[#c9e1ec]">
             {tabs.map((tab) => (
                 <Link key={tab.id} href={tab.href} className={`relative py-3 text-xs font-semibold sm:text-sm ${active === tab.id ? 'text-violet-700' : 'text-slate-500 hover:text-slate-900'}`}>
                     {tab.label}
