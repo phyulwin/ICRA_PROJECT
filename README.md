@@ -1,6 +1,6 @@
-# ICRA Project
+# Cultural Reference Director
 
-This repository is a starter monorepo for a full-stack AI application using:
+This repository contains the Cultural Reference Director application through Phase 4: screenplay ingestion, structured Gemini analysis, live Parallel cultural-reference discovery, deterministic ranking, native Google ADK orchestration, and an Agent Engine deployment path.
 
 - Frontend: Next.js, React, TypeScript
 - Backend: Python, FastAPI, Pydantic
@@ -14,7 +14,21 @@ This repository is a starter monorepo for a full-stack AI application using:
 ICRA_PROJECT/
 ├── backend/
 │   ├── app/
-│   │   ├── __init__.py
+│   │   ├── agents/script_analyzer.py
+│   │   ├── agents/culture_search.py
+│   │   ├── agents/reference_ranker.py
+│   │   ├── adk/root_agent.py
+│   │   ├── adk/tools.py
+│   │   ├── adk/state.py
+│   │   ├── adk/callbacks.py
+│   │   ├── adk/orchestrator.py
+│   │   ├── schemas/scene.py
+│   │   ├── schemas/reference.py
+│   │   ├── services/document_processor.py
+│   │   ├── services/gemini_client.py
+│   │   ├── services/multimodal_analyzer.py
+│   │   ├── services/reference_service.py
+│   │   ├── tools/parallel_search.py
 │   │   └── main.py
 │   └── tests/
 ├── frontend/
@@ -24,12 +38,53 @@ ICRA_PROJECT/
 │   └── next.config.mjs
 ├── infra/
 ├── docs/
+├── deployment/deploy_agent.py
 ├── .env.example
 ├── .gitignore
 ├── requirements.txt
 ├── README.md
 └── .venv/
 ```
+
+## LOCAL DEVELOPMENT
+
+From the repository root, install backend dependencies once:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+Create `.env` from `.env.example` and retain the existing Google Cloud settings:
+
+```text
+GOOGLE_CLOUD_PROJECT=your-project-id
+GOOGLE_CLOUD_LOCATION=global
+GOOGLE_GENAI_MODEL=gemini-2.5-flash
+GOOGLE_GENAI_USE_VERTEXAI=True
+# Set this only when the path points to a real service-account file.
+# GOOGLE_APPLICATION_CREDENTIALS=C:/path/to/real-service-account.json
+PARALLEL_API_KEY=your-server-side-parallel-key
+REFERENCE_MIN_ARTIFACT_QUALITY=60
+REFERENCE_MIN_MATCH_SCORE=55
+FRONTEND_ORIGINS=http://localhost:3000
+```
+
+Run the backend from the repository root in terminal 1:
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Run the frontend in terminal 2:
+
+```powershell
+Set-Location frontend
+Copy-Item .env.example .env.local
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000`; the FastAPI service is available at `http://localhost:8000` and its interactive API documentation is at `http://localhost:8000/docs`.
 
 ## Python backend setup
 
@@ -57,12 +112,58 @@ npm install
 npm run dev
 ```
 
+The frontend stores completed Phase 2 results in browser `localStorage` for route navigation and refreshes. Uploaded `File` objects remain memory-only, so refreshing the processing screen requires choosing the file again.
+
 ## Environment
 
 Copy `.env.example` to `.env` and update the values for your Google Cloud project and secrets.
 
+## Application API
+
+- `POST /api/v1/screenplays/parse`: multipart `file` containing `.pdf`, `.txt`, or `.fountain`.
+- `POST /api/v1/screenplays/analyze`: parses the uploaded `file`, analyzes every scene with Gemini, and returns validated JSON.
+- `POST /api/v1/screenplays/analyze-text`: accepts JSON with `text` and optional `filename`.
+- `POST /api/v1/scenes/multimodal-analyze`: accepts multipart `scene_json` and an image/video `media` file.
+- `POST /api/v1/scenes/{scene_id}/references`: uses existing scene analysis, calls Parallel Search at runtime, evaluates real candidates with Gemini, and returns deterministically ranked source-linked results.
+
+The agents use the existing `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, and `GOOGLE_GENAI_MODEL` configuration. `PARALLEL_API_KEY` is backend-only; browser code calls FastAPI and never contacts Parallel directly.
+
+## Google ADK local development
+
+The product UI remains the Next.js application. ADK CLI and ADK Web are separate developer surfaces that load the same production services and require the repository root on `PYTHONPATH`:
+
+```powershell
+$env:PYTHONPATH=(Get-Location).Path
+python -m dotenv -f .env run -- adk run backend/app/adk
+python -m dotenv -f .env run -- adk web backend/app --port 8001
+```
+
+The root agent conditionally calls `analyze_scene`, the Parallel-backed `search_cultural_references`, deterministic `rank_references`, and URI-based `analyze_multimodal_reference`. Typed ADK state is JSON-serializable; uploaded binary media and secrets are never placed in session state.
+
+## Agent Engine deployment
+
+Configure `AGENT_ENGINE_LOCATION`, `AGENT_ENGINE_STAGING_BUCKET`, `AGENT_ENGINE_SERVICE_ACCOUNT`, `PARALLEL_SECRET_ID`, and `PARALLEL_SECRET_VERSION`, then run:
+
+```powershell
+python -m dotenv -f .env run -- python deployment/deploy_agent.py
+```
+
+The deployment injects `PARALLEL_API_KEY` through a Secret Manager reference rather than packaging a local `.env` file or raw secret value.
+
+After deployment, set `AGENT_ENGINE_RESOURCE_NAME` to the returned resource and run `python -m dotenv -f .env run -- python deployment/smoke_test_agent.py` to create a managed session and verify a remote `analyze_scene` tool call. Set `AGENT_ENGINE_SMOKE_FULL_SEARCH=True` for the separate cost-bearing smoke test that also requires live Parallel search and deterministic ranking.
+
+## Tests
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest backend\tests -q
+```
+
 ## Notes
 
-This is a base scaffold intended for extension with Gemini, Vertex AI, Firestore, Secret Manager, and deployment automation for Cloud Run.
+The PDF implementation uses local `pypdf` extraction for deterministic screenplay splitting and Google's native PDF `Part.from_bytes` pattern as a fallback when a valid PDF has no embedded text. See the [Phase 2 implementation audit](docs/phase2_implementation.md) for official-resource traceability, adoption decisions, and deferred technologies.
 
-The core Python dependencies are pinned in `requirements.txt`. Optional ADK and MCP packages are left as commented entries because they may require a small compatibility review before being enabled in a production app.
+See the [Phase 3 implementation guide](docs/phase3_implementation.md) and [reference retrieval quality audit](docs/reference_retrieval_quality.md) for the live Parallel search flow, provenance boundary, scoring weights, Extract policy, and measured quality.
+
+See the [Phase 4 implementation guide](docs/phase4_implementation.md) for ADK tool/state architecture, official Google traceability, local commands, deployment prerequisites, and operational boundaries.
+
+The core Python dependencies, including the supported Agent Engine ADK extras, are constrained in `requirements.txt`. MCP remains deferred because the current production pipeline does not require it.

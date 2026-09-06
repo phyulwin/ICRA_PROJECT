@@ -1,18 +1,83 @@
+/* frontend/app/globals.css */
+@import "tailwindcss";
+
+/* Establish the product palette and reusable surface tokens. */
+:root {
+    --navy-950: #111827;
+    --navy-900: #172033;
+    --ink-950: #11162a;
+    --ink-700: #35405d;
+    --ink-500: #68708a;
+    --line: #e1e4ed;
+    --canvas: #f6f7fb;
+    --surface: #ffffff;
+    --purple-700: #6d3ce7;
+    --purple-600: #7c4dff;
+    --purple-100: #eee8ff;
+    --green-600: #16a36a;
+    --amber-600: #e58b17;
+    --rose-500: #dc5a68;
+}
+
+/* Normalize the viewport for a calm desktop-first application surface. */
+* {
+    box-sizing: border-box;
+}
+
 html,
 body {
     margin: 0;
-    padding: 0;
     min-height: 100%;
-    background: #0f172a;
-    color: #e2e8f0;
+    background: var(--canvas);
+    color: var(--ink-950);
 }
 
 body {
-    font-family: Arial, Helvetica, sans-serif;
+    font-family: var(--font-inter), Arial, Helvetica, sans-serif;
 }
 
-main {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
+button,
+input {
+    font: inherit;
+}
+
+button,
+a {
+    -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+    background: #dcd0ff;
+}
+
+/* Share consistent focus treatment across keyboard-operable controls. */
+:focus-visible {
+    outline: 3px solid rgba(124, 77, 255, 0.28);
+    outline-offset: 2px;
+}
+
+/* Provide a subtle film-workspace background without decorative imagery. */
+.workspace-bg {
+    background:
+        radial-gradient(circle at 13% 8%, rgba(124, 77, 255, 0.07), transparent 25rem),
+        linear-gradient(180deg, #fbfbfe 0%, var(--canvas) 100%);
+}
+
+/* Animate indeterminate processing while avoiding false completion claims. */
+@keyframes progress-sweep {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(320%); }
+}
+
+@keyframes soft-pulse {
+    0%, 100% { opacity: 0.45; transform: scale(0.96); }
+    50% { opacity: 1; transform: scale(1); }
+}
+
+.progress-sweep {
+    animation: progress-sweep 1.7s ease-in-out infinite;
+}
+
+.soft-pulse {
+    animation: soft-pulse 1.6s ease-in-out infinite;
 }
