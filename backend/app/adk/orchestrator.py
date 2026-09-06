@@ -84,6 +84,7 @@ class ReferenceWorkflowOrchestrator:
                 failed_queries=search_result.failed_queries,
                 warnings=search_result.warnings,
                 partial_success=search_result.partial_success,
+                retry_count=search_result.retry_count,
             )
             logger.info(
                 "reference_workflow_complete",

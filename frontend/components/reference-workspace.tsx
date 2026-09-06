@@ -19,8 +19,7 @@ import { OpportunityBadge } from './opportunity-badge';
 import { ProjectLoading, ProjectNotFound } from './project-state';
 import { SceneSidebar } from './scene-sidebar';
 import { SceneTabs } from './scene-tabs';
-import { findCulturalReferences } from '@/lib/api';
-import { loadReferenceResult, saveReferenceResult } from '@/lib/reference-store';
+import { findCulturalReferences, getSearch, listRefinements, listSearches, updateSelection } from '@/lib/api';
 import type {
     CulturalReferenceType,
     MatchFor,
@@ -30,6 +29,8 @@ import type {
     ReferenceSearchResponse,
     ReferenceType,
     SourcePlatform,
+    RefinementRecord,
+    SearchRecord,
 } from '@/lib/types';
 import { useProject } from '@/lib/use-project';
 
@@ -84,6 +85,9 @@ export function ReferenceWorkspace() {
     const [preferences, setPreferences] = useState(DEFAULT_PREFERENCES);
     const [status, setStatus] = useState<SearchStatus>('idle');
     const [result, setResult] = useState<ReferenceSearchResponse | null>(null);
+    const [selectedSearchId, setSelectedSearchId] = useState<string | null>(null);
+    const [searchHistory, setSearchHistory] = useState<SearchRecord[]>([]);
+    const [refinements, setRefinements] = useState<RefinementRecord[]>([]);
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const requestController = useRef<AbortController | null>(null);
@@ -98,17 +102,36 @@ export function ReferenceWorkspace() {
         (candidate) => candidate.reference.id === selectedId,
     ) ?? null;
 
-    // Restore the latest successful scene search after browser hydration.
+    // Restore the latest durable search after backend hydration.
     useEffect(() => {
-        const timer = window.setTimeout(() => {
-            const cached = loadReferenceResult(projectId, sceneId);
-            if (cached) {
-                setResult(cached);
-                setSelectedId(cached.references[0]?.reference.id ?? null);
+        let cancelled = false;
+        void Promise.all([listSearches(projectId, sceneId), listRefinements(projectId, sceneId)])
+            .then(async ([searches, refinementHistory]) => {
+                setSearchHistory(searches);
+                setRefinements(refinementHistory);
+                const latest = searches[0];
+                if (!latest) return;
+                const detail = await getSearch(projectId, sceneId, latest.search_id);
+                if (cancelled) return;
+                setSelectedSearchId(detail.search_id);
+                setResult({
+                    scene_id: detail.scene_id,
+                    references: detail.references,
+                    raw_candidate_count: detail.raw_candidate_count,
+                    rejected_candidate_count: 0,
+                    extracted_candidate_count: 0,
+                    searched_queries: detail.queries,
+                    failed_queries: detail.failed_queries,
+                    warnings: detail.warnings,
+                    partial_success: detail.status === 'partial_success',
+                    retry_count: detail.retry_count,
+                    search_id: detail.search_id,
+                });
+                setSelectedId(detail.chosen_reference_id ?? detail.references[0]?.reference.id ?? null);
                 setStatus('success');
-            }
-        }, 0);
-        return () => window.clearTimeout(timer);
+            })
+            .catch(() => undefined);
+        return () => { cancelled = true; };
     }, [projectId, sceneId]);
 
     // Cancel any in-flight fetch if the user leaves the scene route.
@@ -129,6 +152,7 @@ export function ReferenceWorkspace() {
 
         try {
             const response = await findCulturalReferences(
+                projectId,
                 item.scene,
                 item.analysis,
                 preferences,
@@ -136,8 +160,8 @@ export function ReferenceWorkspace() {
             );
             if (controller.signal.aborted) return;
             setResult(response);
+            setSelectedSearchId(response.search_id);
             setSelectedId(response.references[0]?.reference.id ?? null);
-            saveReferenceResult(projectId, sceneId, response);
             setStatus('success');
         } catch (reason) {
             if (controller.signal.aborted) return;
@@ -150,6 +174,40 @@ export function ReferenceWorkspace() {
         } finally {
             window.clearTimeout(evaluatingTimer);
             window.clearTimeout(rankingTimer);
+        }
+    }
+
+    async function chooseReference(referenceId: string | null) {
+        if (!selectedSearchId) return;
+        try {
+            await updateSelection(projectId, sceneId, selectedSearchId, referenceId);
+            setSelectedId(referenceId);
+        } catch (reason) {
+            setError(reason instanceof Error ? reason.message : 'Selection could not be saved.');
+        }
+    }
+
+    async function openSearch(searchId: string) {
+        try {
+            const detail = await getSearch(projectId, sceneId, searchId);
+            setSelectedSearchId(detail.search_id);
+            setResult({
+                scene_id: detail.scene_id,
+                references: detail.references,
+                raw_candidate_count: detail.raw_candidate_count,
+                rejected_candidate_count: 0,
+                extracted_candidate_count: 0,
+                searched_queries: detail.queries,
+                failed_queries: detail.failed_queries,
+                warnings: detail.warnings,
+                partial_success: detail.status === 'partial_success',
+                retry_count: detail.retry_count,
+                search_id: detail.search_id,
+            });
+            setSelectedId(detail.chosen_reference_id ?? detail.references[0]?.reference.id ?? null);
+            setStatus('success');
+        } catch (reason) {
+            setError(reason instanceof Error ? reason.message : 'Search history could not be loaded.');
         }
     }
 
@@ -191,9 +249,12 @@ export function ReferenceWorkspace() {
                             {item.analysis.reference_queries.length === 0 && <p className="mt-3 text-sm text-slate-500">Gemini did not identify a reference opportunity for this scene.</p>}
                         </section>
 
+                        {searchHistory.length > 0 && <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-bold text-slate-950">Search history</h2><div className="mt-4 flex gap-2 overflow-x-auto pb-1">{searchHistory.map((search, index) => <button key={search.search_id} type="button" onClick={() => void openSearch(search.search_id)} className={`min-w-44 rounded-lg border px-3 py-2 text-left text-xs ${search.search_id === selectedSearchId ? 'border-violet-300 bg-violet-50 text-violet-900' : 'border-slate-200 text-slate-600 hover:border-violet-200'}`}><span className="block font-bold">Search {searchHistory.length - index}</span><span className="mt-1 block">{new Date(search.created_at).toLocaleString()}</span><span className="mt-1 block">{search.retained_candidate_count} results · {search.preferences.reference_type}</span></button>)}</div></section>}
+                        {refinements.length > 0 && <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-bold text-slate-950">Refinement history</h2><div className="mt-3 space-y-2">{refinements.map((refinement) => <div key={refinement.refinement_id} className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600"><span className="font-semibold text-slate-900">{refinement.user_text}</span><span className="ml-2">{new Date(refinement.created_at).toLocaleString()}</span></div>)}</div></section>}
+
                         {isSearching && <SearchProgress status={status} />}
                         {error && <section className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-5"><p className="font-semibold text-rose-900">Reference search failed</p><p className="mt-2 text-sm text-rose-700">{error}</p></section>}
-                        {status === 'success' && result && <ReferenceResults result={result} selectedId={selectedId} onSelect={setSelectedId} />}
+                        {status === 'success' && result && <ReferenceResults result={result} selectedId={selectedId} onSelect={setSelectedId} onChoose={chooseReference} />}
                         {selected && <ReferenceDetail reference={selected} sceneText={item.scene.raw_text} projectId={projectId} sceneId={sceneId} />}
                     </div>
                 </section>
@@ -218,14 +279,14 @@ function SearchProgress({ status }: { status: SearchStatus }) {
 
 
 // Present ranked references while retaining a direct source link on every card.
-function ReferenceResults({ result, selectedId, onSelect }: { result: ReferenceSearchResponse; selectedId: string | null; onSelect: (id: string) => void }) {
+function ReferenceResults({ result, selectedId, onSelect, onChoose }: { result: ReferenceSearchResponse; selectedId: string | null; onSelect: (id: string) => void; onChoose: (id: string | null) => void }) {
     if (result.references.length === 0) return <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm"><ImageOff size={28} className="mx-auto text-slate-400" /><h2 className="mt-3 font-bold text-slate-950">No traceable references found</h2><p className="mt-2 text-sm text-slate-500">Adjust the filters or try a broader reference type.</p></section>;
-    return <section className="mt-6"><div className="flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-xl font-bold text-slate-950">Ranked references</h2><p className="mt-1 text-sm text-slate-500">{result.references.length} verified artifacts shown from {result.raw_candidate_count} Parallel candidates; {result.rejected_candidate_count ?? 0} not promoted through the quality gates.</p></div>{result.partial_success && <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">Partial search success</span>}</div><div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{result.references.map((ranked) => <ReferenceCard key={ranked.reference.id} ranked={ranked} selected={ranked.reference.id === selectedId} onSelect={() => onSelect(ranked.reference.id)} />)}</div></section>;
+    return <section className="mt-6"><div className="flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-xl font-bold text-slate-950">Ranked references</h2><p className="mt-1 text-sm text-slate-500">{result.references.length} verified artifacts shown from {result.raw_candidate_count} Parallel candidates; {result.rejected_candidate_count ?? 0} not promoted through the quality gates.</p></div>{result.partial_success && <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">Partial search success</span>}</div><div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{result.references.map((ranked) => <ReferenceCard key={ranked.reference.id} ranked={ranked} selected={ranked.reference.id === selectedId} onSelect={() => onSelect(ranked.reference.id)} onChoose={() => onChoose(ranked.reference.id)} onClear={() => onChoose(null)} />)}</div></section>;
 }
 
 
 // Render provider facts and use a neutral placeholder when Parallel has no image.
-function ReferenceCard({ ranked, selected, onSelect }: { ranked: RankedReference; selected: boolean; onSelect: () => void }) {
+function ReferenceCard({ ranked, selected, onSelect, onChoose, onClear }: { ranked: RankedReference; selected: boolean; onSelect: () => void; onChoose: () => void; onClear: () => void }) {
     const { reference, assessment, overall_score: score } = ranked;
     const platform = PLATFORM_LABELS[reference.source_platform ?? 'web'];
     const artifactType = TYPE_LABELS[assessment.cultural_reference_type ?? 'other'];
@@ -235,7 +296,7 @@ function ReferenceCard({ ranked, selected, onSelect }: { ranked: RankedReference
             // eslint-disable-next-line @next/next/no-img-element
             <img src={reference.image_url} alt={`Preview for ${reference.title}`} className="h-36 w-full object-cover" />
         ) : <div className="grid h-36 place-items-center bg-gradient-to-br from-slate-100 to-violet-50 text-slate-400"><ImageOff size={30} /><span className="sr-only">No source image available</span></div>}
-        <div className="p-5"><div className="flex items-start justify-between gap-3"><div className="flex flex-wrap gap-1.5"><span className="rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-bold text-white">{platform}</span><span className="rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700">{artifactType}</span></div><span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-bold text-violet-800">{score}%</span></div><h3 className="mt-2 line-clamp-2 font-bold leading-6 text-slate-950">{reference.title}</h3><p className="mt-2 line-clamp-3 text-sm leading-6 text-slate-600">{reference.snippet || 'Parallel returned no excerpt for this source.'}</p><p className="mt-3 text-xs font-semibold text-slate-700">Why the performance matches</p><p className="mt-1 text-xs leading-5 text-slate-500">{assessment.match_reason}</p><div className="mt-4 flex items-center justify-between gap-3"><button type="button" onClick={onSelect} className="text-xs font-bold text-violet-700 hover:text-violet-900">View match details</button><a href={reference.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-violet-700">Actual source <ArrowUpRight size={13} /></a></div></div>
+        <div className="p-5"><div className="flex items-start justify-between gap-3"><div className="flex flex-wrap gap-1.5"><span className="rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-bold text-white">{platform}</span><span className="rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700">{artifactType}</span></div><span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-bold text-violet-800">{score}%</span></div><h3 className="mt-2 line-clamp-2 font-bold leading-6 text-slate-950">{reference.title}</h3><p className="mt-2 line-clamp-3 text-sm leading-6 text-slate-600">{reference.snippet || 'Parallel returned no excerpt for this source.'}</p><p className="mt-3 text-xs font-semibold text-slate-700">Why the performance matches</p><p className="mt-1 text-xs leading-5 text-slate-500">{assessment.match_reason}</p><div className="mt-4 flex items-center justify-between gap-3"><button type="button" onClick={onSelect} className="text-xs font-bold text-violet-700 hover:text-violet-900">View match details</button><button type="button" onClick={selected ? onClear : onChoose} className="text-xs font-bold text-violet-700 hover:text-violet-900">{selected ? 'Clear selection' : 'Select reference'}</button><a href={reference.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-violet-700">Actual source <ArrowUpRight size={13} /></a></div></div>
     </article>;
 }
 

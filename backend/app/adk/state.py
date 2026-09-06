@@ -36,6 +36,8 @@ class ProjectSessionState(BaseModel):
     """State shared by the Cultural Reference Director root agent."""
 
     project_id: str = ""
+    current_search_id: str | None = None
+    selected_reference_id: str | None = None
     screenplay_metadata: dict[str, Any] = Field(default_factory=dict)
     selected_scene_id: str | None = None
     scene: Scene | None = None
@@ -49,7 +51,7 @@ class ProjectSessionState(BaseModel):
         default_factory=list
     )
     ranked_references: list[RankedReference] = Field(default_factory=list)
-    selected_reference: RankedReference | None = None
+    # Durable selection lives in Firestore; this ID is the active-session pointer.
     directing_notes: list[str] = Field(default_factory=list)
     retry_count: int = Field(default=0, ge=0, le=1)
     last_tool_status: ToolStatus | None = None

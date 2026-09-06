@@ -42,6 +42,7 @@ export interface AnalyzedScene {
 }
 
 export interface ScreenplayAnalysisResult {
+    project_id?: string | null;
     filename: string;
     media_type: string;
     character_count: number;
@@ -52,6 +53,24 @@ export interface ProjectSnapshot {
     projectId: string;
     analyzedAt: string;
     result: ScreenplayAnalysisResult;
+}
+
+export interface ProjectRecord {
+    project_id: string;
+    title: string;
+    filename: string;
+    created_at: string;
+    updated_at: string;
+    status: string;
+    screenplay_metadata: Record<string, unknown>;
+    selected_scene_id: string | null;
+    latest_search_preferences: ReferenceSearchPreferences | null;
+    scene_count: number;
+    selected_reference_count: number;
+}
+
+export interface ProjectDetail extends ProjectRecord {
+    scenes: AnalyzedScene[];
 }
 
 // Mirror backend search controls without exposing the server-side Parallel key.
@@ -142,4 +161,37 @@ export interface ReferenceSearchResponse {
     failed_queries: SearchQueryFailure[];
     warnings: string[];
     partial_success: boolean;
+    retry_count: number;
+    search_id: string | null;
+}
+
+export interface SearchRecord {
+    search_id: string;
+    project_id: string;
+    scene_id: string;
+    queries: string[];
+    preferences: ReferenceSearchPreferences;
+    created_at: string;
+    raw_candidate_count: number;
+    retained_candidate_count: number;
+    retry_count: number;
+    status: string;
+    failed_queries: SearchQueryFailure[];
+    warnings: string[];
+}
+
+export interface SearchDetail extends SearchRecord {
+    references: RankedReference[];
+    chosen_reference_id: string | null;
+}
+
+export interface RefinementRecord {
+    refinement_id: string;
+    project_id: string;
+    scene_id: string;
+    user_text: string;
+    parsed_preferences: ReferenceSearchPreferences;
+    previous_search_id: string | null;
+    resulting_search_id: string | null;
+    created_at: string;
 }

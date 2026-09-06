@@ -1,187 +1,90 @@
 # Cultural Reference Director
 
-This repository contains the production-deployed Cultural Reference Director through Phase 5: screenplay ingestion, structured Gemini analysis, live Parallel cultural-reference discovery, deterministic ranking, native Google ADK orchestration, Agent Engine, and Cloud Run delivery.
+### Turn screenplay moments into a shared visual language.
 
-- Frontend: Next.js, React, TypeScript
-- Backend: Python, FastAPI, Pydantic
-- AI: Google Gemini, Vertex AI, Google ADK
-- Agent infrastructure: Vertex AI Agent Engine / Agent Runtime
-- Cloud: Google Cloud Platform, Cloud Run, Cloud Storage, Firestore, Secret Manager
+**Live demo:** [cultural-reference-web-602486879299.us-central1.run.app](https://cultural-reference-web-602486879299.us-central1.run.app)
 
-## Project structure
+## About
 
-```text
-ICRA_PROJECT/
-├── backend/
-│   ├── app/
-│   │   ├── agents/script_analyzer.py
-│   │   ├── agents/culture_search.py
-│   │   ├── agents/reference_ranker.py
-│   │   ├── adk/root_agent.py
-│   │   ├── adk/tools.py
-│   │   ├── adk/state.py
-│   │   ├── adk/callbacks.py
-│   │   ├── adk/orchestrator.py
-│   │   ├── schemas/scene.py
-│   │   ├── schemas/reference.py
-│   │   ├── services/document_processor.py
-│   │   ├── services/gemini_client.py
-│   │   ├── services/multimodal_analyzer.py
-│   │   ├── services/reference_service.py
-│   │   ├── tools/parallel_search.py
-│   │   └── main.py
-│   └── tests/
-├── frontend/
-│   ├── app/
-│   ├── package.json
-│   ├── tsconfig.json
-│   └── next.config.mjs
-├── infra/
-├── docs/
-├── deployment/deploy_agent.py
-├── .env.example
-├── .gitignore
-├── requirements.txt
-├── README.md
-└── .venv/
-```
+Cultural Reference Director is an AI-powered filmmaking assistant that analyzes screenplay scenes and discovers relevant cultural references: memes, viral internet moments, reaction media, film and television moments, anime-style references, and other recognizable visual material. It helps filmmakers move from a written scene to concrete creative inspiration without losing the original dramatic or comedic intent.
 
-## LOCAL DEVELOPMENT
+Directors often know the exact effect they want, but describing the performance, reaction, physical action, timing, or visual reference can be difficult. Cultural Reference Director bridges that gap:
 
-From the repository root, install backend dependencies once:
+**written screenplay → scene understanding → cultural references → creative inspiration**
 
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-```
+The application identifies which scenes are actually good candidates for a reference, searches real web sources, and explains why ranked results fit. It is designed to give creative teams a more precise starting point for discussing the moment they want to make.
 
-Create `.env` from `.env.example` and retain the existing Google Cloud settings:
+## How It Works
 
-```text
-GOOGLE_CLOUD_PROJECT=your-project-id
-GOOGLE_CLOUD_LOCATION=global
-GOOGLE_GENAI_MODEL=gemini-2.5-flash
-GOOGLE_GENAI_USE_VERTEXAI=True
-# Set this only when the path points to a real service-account file.
-# GOOGLE_APPLICATION_CREDENTIALS=C:/path/to/real-service-account.json
-PARALLEL_API_KEY=your-server-side-parallel-key
-REFERENCE_MIN_ARTIFACT_QUALITY=60
-REFERENCE_MIN_MATCH_SCORE=55
-FRONTEND_ORIGINS=http://localhost:3000
-```
+1. Upload a screenplay in PDF, TXT, or Fountain format.
+2. The application detects individual scenes.
+3. Each scene is analyzed for tone, characters, emotions, actions, dramatic or comedic mechanisms, visual characteristics, and reference opportunities.
+4. Choose a scene that needs creative inspiration.
+5. Search for relevant real-world cultural references.
+6. Review ranked matches and the reasons they fit the scene.
+7. Adjust search preferences, find alternatives, and select references to keep in the workspace.
 
-Run the backend from the repository root in terminal 1:
+## Features
 
-```powershell
-.\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
-```
+### Screenplay Intelligence
 
-Run the frontend in terminal 2:
+- PDF, TXT, and Fountain screenplay upload
+- Automatic scene detection
+- Scene-by-scene Gemini analysis
+- Tone and emotion identification
+- Character intentions
+- Important actions and visual characteristics
+- Comedic and dramatic mechanisms
+- Reference-opportunity detection, so references are not forced onto every scene
 
-```powershell
-Set-Location frontend
-Copy-Item .env.example .env.local
-npm install
-npm run dev
-```
+### Cultural Reference Discovery
 
-Open `http://localhost:3000`; the FastAPI service is available at `http://localhost:8000` and its interactive API documentation is at `http://localhost:8000/docs`.
+- Real web-based cultural references retrieved through Parallel Search
+- Memes, reaction media, and viral internet-culture moments
+- Film, television, anime, GIF, TikTok, Instagram, YouTube, and other source categories where returned by the search
+- Source-linked results with direct URLs rather than fabricated references
+- Honest handling of partial searches and rejected candidates
 
-## Python backend setup
+### Intelligent Reference Matching
 
-1. Activate the virtual environment:
-   ```powershell
-   .\.venv\Scripts\Activate.ps1
-   ```
+References are evaluated across qualities such as:
 
-2. Install dependencies:
-   ```powershell
-   python -m pip install -r requirements.txt
-   ```
+- Situation
+- Emotion
+- Acting and performance
+- Visual similarity
+- Comedic or dramatic timing
+- Recognizability
+- Cultural relevance
 
-3. Run the API:
-   ```powershell
-   uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
-   ```
+The application returns deterministic ranked matches, score breakdowns, source metadata, and an explanation of why each reference fits the performance or scene.
 
-## Frontend setup
+### Search Refinement
 
-From the `frontend` folder:
+The scene workspace currently supports filters for:
 
-```powershell
-npm install
-npm run dev
-```
+- Reference type, including memes, internet culture, film/TV, anime, and TikTok
+- Era, including the 2000s, 2010s, 2020s, and current references
+- Acting, situation, visual, timing, or all matching priorities
+- Mainstream-to-niche obscurity
+- Result count and additional searches for alternatives
 
-The frontend stores completed Phase 2 results in browser `localStorage` for route navigation and refreshes. Uploaded `File` objects remain memory-only, so refreshing the processing screen requires choosing the file again.
+## Example
 
-## Environment
+**Screenplay moment:**
 
-Copy `.env.example` to `.env` and update the values for your Google Cloud project and secrets.
+> A character confidently denies eating the missing cake while chocolate frosting is visibly covering their shirt.
 
-## Application API
+Instead of searching for articles about lying, Cultural Reference Director looks for visual cultural moments involving caught-in-the-act reactions, guilty expressions, awkward realization, and similar comedic timing. The result is a more useful creative vocabulary for directing the performance.
 
-- `POST /api/v1/screenplays/parse`: multipart `file` containing `.pdf`, `.txt`, or `.fountain`.
-- `POST /api/v1/screenplays/analyze`: parses the uploaded `file`, analyzes every scene with Gemini, and returns validated JSON.
-- `POST /api/v1/screenplays/analyze-text`: accepts JSON with `text` and optional `filename`.
-- `POST /api/v1/scenes/multimodal-analyze`: accepts multipart `scene_json` and an image/video `media` file.
-- `POST /api/v1/scenes/{scene_id}/references`: uses existing scene analysis, calls Parallel Search at runtime, evaluates real candidates with Gemini, and returns deterministically ranked source-linked results.
+## Who It Is For
 
-The agents use the existing `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, and `GOOGLE_GENAI_MODEL` configuration. `PARALLEL_API_KEY` is backend-only; browser code calls FastAPI and never contacts Parallel directly.
+Cultural Reference Director is built for directors, filmmakers, screenwriters, content creators, pre-production teams, and creative groups looking for a shared visual vocabulary.
 
-## Google ADK local development
+## Product Philosophy
 
-The product UI remains the Next.js application. ADK CLI and ADK Web are separate developer surfaces that load the same production services and require the repository root on `PYTHONPATH`:
+Cultural Reference Director does not replace creative decision-making. It acts as a visual and cultural brainstorming partner for requests such as:
 
-```powershell
-$env:PYTHONPATH=(Get-Location).Path
-python -m dotenv -f .env run -- adk run backend/app/adk
-python -m dotenv -f .env run -- adk web backend/app --port 8001
-```
+> “Give me that moment where someone realizes they’ve been caught.”
 
-The root agent conditionally calls `analyze_scene`, the Parallel-backed `search_cultural_references`, deterministic `rank_references`, and URI-based `analyze_multimodal_reference`. Typed ADK state is JSON-serializable; uploaded binary media and secrets are never placed in session state.
-
-## Agent Engine deployment
-
-Configure `AGENT_ENGINE_LOCATION`, `AGENT_ENGINE_STAGING_BUCKET`, `AGENT_ENGINE_SERVICE_ACCOUNT`, `PARALLEL_SECRET_ID`, and `PARALLEL_SECRET_VERSION`, then run:
-
-```powershell
-python -m dotenv -f .env run -- python deployment/deploy_agent.py
-```
-
-The deployment injects `PARALLEL_API_KEY` through a Secret Manager reference rather than packaging a local `.env` file or raw secret value.
-
-After deployment, set `AGENT_ENGINE_RESOURCE_NAME` to the returned resource and run `python -m dotenv -f .env run -- python deployment/smoke_test_agent.py` to create a managed session and verify a remote `analyze_scene` tool call. Set `AGENT_ENGINE_SMOKE_FULL_SEARCH=True` for the separate cost-bearing smoke test that also requires live Parallel search and deterministic ranking.
-
-## Tests
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest backend\tests -q
-```
-
-## PRODUCTION DEPLOYMENT
-
-The public services are:
-
-- Frontend: `https://cultural-reference-web-602486879299.us-central1.run.app`
-- Backend: `https://cultural-reference-api-602486879299.us-central1.run.app`
-- Liveness/readiness: backend `/health` and `/ready`
-
-The production flow is `Browser → Next.js Cloud Run → FastAPI Cloud Run → Agent Engine → Gemini + Parallel`. Cloud Run injects `PARALLEL_API_KEY` from Secret Manager; the browser receives only `NEXT_PUBLIC_API_BASE_URL`. The API service account has Vertex AI user, log writer, monitoring metric writer, and secret-level accessor permissions; the web runtime has no project data roles.
-
-To repeat the deployment after setting an authenticated `gcloud` project, run:
-
-```powershell
-.\deployment\deploy_cloud_run.ps1
-```
-
-The backend permits the exact deployed web origin plus localhost, limits screenplay uploads to 20 MiB and reference media to 50 MiB, and applies a 55 MiB HTTP ceiling, a 280-second application timeout, concurrency 8, and at most three instances. See [Phase 5 production deployment and safety](docs/phase5_implementation.md) for IAM, safety settings, deployment evidence, and limitations.
-
-## Notes
-
-The PDF implementation uses local `pypdf` extraction for deterministic screenplay splitting and Google's native PDF `Part.from_bytes` pattern as a fallback when a valid PDF has no embedded text. See the [Phase 2 implementation audit](docs/phase2_implementation.md) for official-resource traceability, adoption decisions, and deferred technologies.
-
-See the [Phase 3 implementation guide](docs/phase3_implementation.md) and [reference retrieval quality audit](docs/reference_retrieval_quality.md) for the live Parallel search flow, provenance boundary, scoring weights, Extract policy, and measured quality.
-
-See the [Phase 4 implementation guide](docs/phase4_implementation.md) for ADK tool/state architecture, official Google traceability, local commands, deployment prerequisites, and operational boundaries.
-
-The core Python dependencies, including the supported Agent Engine ADK extras, are constrained in `requirements.txt`. MCP remains deferred because the current production pipeline does not require it.
+The goal is to turn that abstract direction into concrete, traceable references that a creative team can discuss together.

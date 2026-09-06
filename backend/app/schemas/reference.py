@@ -124,6 +124,7 @@ class CulturalSearchResult(BaseModel):
     raw_candidate_count: int = Field(default=0, ge=0)
     rejected_candidate_count: int = Field(default=0, ge=0)
     extracted_candidate_count: int = Field(default=0, ge=0)
+    retry_count: int = Field(default=0, ge=0, le=1)
 
     # Make partial success explicit for HTTP consumers.
     @property
@@ -200,6 +201,7 @@ class RankedReference(BaseModel):
 class ReferenceSearchRequest(BaseModel):
     """Existing scene intelligence plus user discovery preferences."""
 
+    project_id: str | None = None
     scene: Scene
     scene_analysis: SceneAnalysis
     preferences: ReferenceSearchPreferences = Field(
@@ -229,6 +231,8 @@ class ReferenceSearchResponse(BaseModel):
     failed_queries: list[SearchQueryFailure] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     partial_success: bool = False
+    retry_count: int = Field(default=0, ge=0, le=1)
+    search_id: str | None = None
 
 
 # Limit the optional Gemini reformulation pass to concise search intent.

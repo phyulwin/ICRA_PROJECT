@@ -17,11 +17,25 @@ from pydantic import BaseModel, ValidationError
 from backend.app.agents.reference_ranker import ReferenceRankingError
 from backend.app.agents.script_analyzer import ScriptAnalysisError, ScriptIntelligenceAgent
 from backend.app.schemas.reference import ReferenceSearchRequest, ReferenceSearchResponse
+from backend.app.schemas.persistence import (
+    AnalysisPersistencePayload,
+    ProjectCreateRequest,
+    ProjectUpdateRequest,
+    RefinementRequest,
+    SelectionUpdate,
+)
 from backend.app.schemas.scene import AnalyzedScene, DocumentProcessingResult, MultimodalAnalysisResult, PastedScreenplayRequest, Scene, ScreenplayAnalysisResult
 from backend.app.services.agent_engine_service import AgentEngineGateway, AgentEngineInvocationError
 from backend.app.services.document_processor import DocumentProcessingError, DocumentProcessor, GeminiDocumentTextExtractor, NativeDocumentExtractionError
 from backend.app.services.multimodal_analyzer import MultimodalAnalysisError, MultimodalAnalyzer
 from backend.app.services.reference_service import ReferenceDiscoveryService
+from backend.app.services.firestore_service import (
+    FirestoreProjectService,
+    PersistenceDisabledError,
+    PersistenceUnavailableError,
+    ProjectNotFoundError,
+    SceneNotFoundError,
+)
 from backend.app.services.structured_logging import configure_structured_logger, log_event
 from backend.app.tools.parallel_search import ParallelConfigurationError, ParallelSearchError
 
@@ -38,7 +52,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=frontend_origins,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "X-Request-ID"],
     expose_headers=["X-Request-ID"],
 )
@@ -78,6 +92,7 @@ script_intelligence_agent = ScriptIntelligenceAgent()
 multimodal_analyzer = MultimodalAnalyzer()
 reference_discovery_service = ReferenceDiscoveryService()
 agent_engine_gateway = AgentEngineGateway()
+project_persistence = FirestoreProjectService()
 
 
 # Define lightweight health contracts that never reveal configuration values.
@@ -170,7 +185,10 @@ async def parse_screenplay(file: UploadFile = File(...)) -> DocumentProcessingRe
 
 
 @app.post("/api/v1/screenplays/analyze", response_model=ScreenplayAnalysisResult)
-async def analyze_screenplay(file: UploadFile = File(...)) -> ScreenplayAnalysisResult:
+async def analyze_screenplay(
+    file: UploadFile = File(...),
+    project_id: str | None = Form(default=None),
+) -> ScreenplayAnalysisResult:
     """Parse an uploaded screenplay and analyze every scene through Gemini."""
 
     try:
@@ -182,7 +200,14 @@ async def analyze_screenplay(file: UploadFile = File(...)) -> ScreenplayAnalysis
         raise HTTPException(status_code=502, detail="Document text extraction is temporarily unavailable.") from exc
     except (ScriptAnalysisError, AgentEngineInvocationError) as exc:
         raise HTTPException(status_code=getattr(exc, "status_code", 502), detail="Scene analysis is temporarily unavailable.") from exc
-    return ScreenplayAnalysisResult(filename=document.filename, media_type=document.media_type, character_count=document.character_count, scenes=[AnalyzedScene(scene=scene, analysis=analysis) for scene, analysis in zip(document.scenes, analyses, strict=True)])
+    resolved_project_id = project_id or uuid4().hex
+    result = ScreenplayAnalysisResult(project_id=resolved_project_id, filename=document.filename, media_type=document.media_type, character_count=document.character_count, scenes=[AnalyzedScene(scene=scene, analysis=analysis) for scene, analysis in zip(document.scenes, analyses, strict=True)])
+    if project_persistence.enabled:
+        try:
+            project_persistence.save_analysis(AnalysisPersistencePayload(project_id=resolved_project_id, filename=document.filename, character_count=document.character_count, scenes=result.scenes, screenplay_metadata={"media_type": document.media_type}))
+        except PersistenceUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return result
 
 
 @app.post("/api/v1/screenplays/analyze-text", response_model=ScreenplayAnalysisResult)
@@ -223,11 +248,141 @@ async def find_scene_references(scene_id: str, request: ReferenceSearchRequest) 
         raise HTTPException(status_code=400, detail="The route scene_id does not match the request scene.")
     try:
         if agent_engine_gateway.enabled:
-            return await agent_engine_gateway.find_references(request)
-        return await run_in_threadpool(reference_discovery_service.find_references, request)
+            response = await agent_engine_gateway.find_references(request)
+        else:
+            response = await run_in_threadpool(reference_discovery_service.find_references, request)
+        if project_persistence.enabled and request.project_id:
+            persisted = project_persistence.save_search(
+                request.project_id,
+                scene_id,
+                request.preferences,
+                response.searched_queries,
+                response.references,
+                response.raw_candidate_count,
+                response.retry_count,
+                "partial_success" if response.partial_success else "success",
+                [item.model_dump(mode="json") for item in response.failed_queries],
+                response.warnings,
+            )
+            response.search_id = persisted.search_id
+        return response
     except ParallelConfigurationError as exc:
         raise HTTPException(status_code=503, detail="Reference search is not configured.") from exc
     except ParallelSearchError as exc:
         raise HTTPException(status_code=exc.status_code, detail="Reference search is temporarily unavailable.") from exc
     except (ReferenceRankingError, AgentEngineInvocationError) as exc:
         raise HTTPException(status_code=getattr(exc, "status_code", 502), detail="Reference ranking is temporarily unavailable.") from exc
+    except (PersistenceUnavailableError, PersistenceDisabledError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/projects")
+def list_projects():
+    """Return lightweight project metadata for the project-history screen."""
+
+    try:
+        return project_persistence.list_projects()
+    except (PersistenceUnavailableError, PersistenceDisabledError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/projects")
+def create_project(request: ProjectCreateRequest):
+    """Create durable project metadata before a long analysis job starts."""
+
+    try:
+        return project_persistence.create_project(request)
+    except (PersistenceUnavailableError, PersistenceDisabledError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/projects/{project_id}")
+def get_project(project_id: str):
+    """Return a project with its persisted structured scenes."""
+
+    try:
+        return project_persistence.get_project(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (PersistenceUnavailableError, PersistenceDisabledError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.patch("/api/v1/projects/{project_id}")
+def update_project(project_id: str, request: ProjectUpdateRequest):
+    """Update project metadata without rewriting its scenes or searches."""
+
+    try:
+        return project_persistence.update_project(project_id, request)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (PersistenceUnavailableError, PersistenceDisabledError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.delete("/api/v1/projects/{project_id}", status_code=204)
+def delete_project(project_id: str) -> None:
+    """Delete a project and explicitly remove nested scenes, searches, and references."""
+
+    try:
+        project_persistence.delete_project(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (PersistenceUnavailableError, PersistenceDisabledError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/projects/{project_id}/scenes/{scene_id}/searches")
+def list_searches(project_id: str, scene_id: str):
+    """Return lightweight search-history records without fetching references."""
+
+    try:
+        return project_persistence.list_searches(project_id, scene_id)
+    except (PersistenceUnavailableError, PersistenceDisabledError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/projects/{project_id}/scenes/{scene_id}/searches/{search_id}")
+def get_search(project_id: str, scene_id: str, search_id: str):
+    """Reopen one immutable search with its ranked references."""
+
+    try:
+        return project_persistence.get_search(project_id, scene_id, search_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (PersistenceUnavailableError, PersistenceDisabledError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.put("/api/v1/projects/{project_id}/scenes/{scene_id}/selection")
+def update_selection(project_id: str, scene_id: str, request: SelectionUpdate):
+    """Select, change, or clear the durable reference for a scene."""
+
+    try:
+        return project_persistence.update_scene_selection(project_id, scene_id, request)
+    except SceneNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (PersistenceUnavailableError, PersistenceDisabledError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/projects/{project_id}/scenes/{scene_id}/refinements")
+def add_refinement(project_id: str, scene_id: str, request: RefinementRequest):
+    """Preserve a user refinement before a later search replaces the current view."""
+
+    try:
+        return project_persistence.add_refinement(project_id, scene_id, request)
+    except (PersistenceUnavailableError, PersistenceDisabledError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/projects/{project_id}/scenes/{scene_id}/refinements")
+def list_refinements(project_id: str, scene_id: str):
+    """Return refinement history in chronological order."""
+
+    try:
+        return project_persistence.list_refinements(project_id, scene_id)
+    except (PersistenceUnavailableError, PersistenceDisabledError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc

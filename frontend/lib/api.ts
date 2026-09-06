@@ -2,6 +2,11 @@
 import type {
     ReferenceSearchPreferences,
     ReferenceSearchResponse,
+    ProjectDetail,
+    ProjectRecord,
+    RefinementRecord,
+    SearchDetail,
+    SearchRecord,
     SceneAnalysis,
     ScreenplayAnalysisResult,
     ScreenplayScene,
@@ -34,9 +39,10 @@ async function parseResponse<T>(response: Response): Promise<T> {
 }
 
 // Send screenplay files only to FastAPI; the browser never communicates with Gemini directly.
-export async function uploadScreenplay(file: File): Promise<ScreenplayAnalysisResult> {
+export async function uploadScreenplay(file: File, projectId: string): Promise<ScreenplayAnalysisResult> {
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('project_id', projectId);
 
     try {
         const response = await fetch(`${API_BASE_URL}/api/v1/screenplays/analyze`, {
@@ -56,6 +62,7 @@ export async function uploadScreenplay(file: File): Promise<ScreenplayAnalysisRe
 
 // Send existing Phase 2 state to FastAPI while Parallel credentials remain server-only.
 export async function findCulturalReferences(
+    projectId: string,
     scene: ScreenplayScene,
     sceneAnalysis: SceneAnalysis,
     preferences: ReferenceSearchPreferences,
@@ -68,6 +75,7 @@ export async function findCulturalReferences(
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    project_id: projectId,
                     scene,
                     scene_analysis: sceneAnalysis,
                     preferences,
@@ -84,4 +92,37 @@ export async function findCulturalReferences(
         }
         throw error;
     }
+}
+
+export async function listProjects(): Promise<ProjectRecord[]> {
+    return request<ProjectRecord[]>('/api/v1/projects');
+}
+
+export async function getProject(projectId: string): Promise<ProjectDetail> {
+    return request<ProjectDetail>(`/api/v1/projects/${encodeURIComponent(projectId)}`);
+}
+
+export async function listSearches(projectId: string, sceneId: string): Promise<SearchRecord[]> {
+    return request<SearchRecord[]>(`/api/v1/projects/${encodeURIComponent(projectId)}/scenes/${encodeURIComponent(sceneId)}/searches`);
+}
+
+export async function getSearch(projectId: string, sceneId: string, searchId: string): Promise<SearchDetail> {
+    return request<SearchDetail>(`/api/v1/projects/${encodeURIComponent(projectId)}/scenes/${encodeURIComponent(sceneId)}/searches/${encodeURIComponent(searchId)}`);
+}
+
+export async function updateSelection(projectId: string, sceneId: string, searchId: string | null, referenceId: string | null): Promise<ProjectDetail> {
+    return request<ProjectDetail>(`/api/v1/projects/${encodeURIComponent(projectId)}/scenes/${encodeURIComponent(sceneId)}/selection`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ search_id: searchId, reference_id: referenceId }),
+    });
+}
+
+export async function listRefinements(projectId: string, sceneId: string): Promise<RefinementRecord[]> {
+    return request<RefinementRecord[]>(`/api/v1/projects/${encodeURIComponent(projectId)}/scenes/${encodeURIComponent(sceneId)}/refinements`);
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+    const response = await fetch(`${API_BASE_URL}${path}`, init);
+    return parseResponse<T>(response);
 }

@@ -176,6 +176,7 @@ not include site: filters and do not invent search results or URLs."""
             raw_candidate_count=len(combined_raw),
             rejected_candidate_count=len(combined_raw) - len(final_candidates),
             extracted_candidate_count=extracted_count,
+            retry_count=int(refined is not None),
         )
 
     # Ask Gemini only for improved search intent, never for source candidates.

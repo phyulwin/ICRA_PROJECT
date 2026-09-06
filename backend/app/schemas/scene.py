@@ -113,6 +113,7 @@ class ExtractedDocumentText(BaseModel):
 class ScreenplayAnalysisResult(BaseModel):
     """All analyzed scenes from an uploaded screenplay."""
 
+    project_id: str | None = None
     filename: str
     media_type: str
     character_count: int

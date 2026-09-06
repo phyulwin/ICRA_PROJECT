@@ -10,7 +10,6 @@ import {
     type ReactNode,
 } from 'react';
 import { uploadScreenplay } from '@/lib/api';
-import { saveProject } from '@/lib/project-store';
 import type { ProjectSnapshot } from '@/lib/types';
 
 type JobStatus = 'idle' | 'processing' | 'success' | 'error';
@@ -47,7 +46,7 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
         setError(null);
         setResult(null);
 
-        void uploadScreenplay(file)
+        void uploadScreenplay(file, id)
             .then((analysis) => {
                 if (analysis.scenes.length === 0) {
                     throw new Error('No screenplay scenes were detected in this document.');
@@ -57,7 +56,6 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
                     analyzedAt: new Date().toISOString(),
                     result: analysis,
                 };
-                saveProject(snapshot);
                 setResult(snapshot);
                 setStatus('success');
             })

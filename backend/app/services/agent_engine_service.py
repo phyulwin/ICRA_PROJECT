@@ -111,6 +111,7 @@ class AgentEngineGateway:
                     "extracted_candidate_count": search_payload.get(
                         "extracted_candidate_count", 0
                     ),
+                    "retry_count": search_payload.get("retry_count", 0),
                 }
             )
             rank_payload = results.get("rank_references", {})
@@ -128,6 +129,7 @@ class AgentEngineGateway:
                 failed_queries=search_result.failed_queries,
                 warnings=search_result.warnings,
                 partial_success=search_result.partial_success,
+                retry_count=search_result.retry_count,
             )
         except (TypeError, ValidationError) as exc:
             raise AgentEngineInvocationError(
