@@ -88,3 +88,7 @@ Cultural Reference Director does not replace creative decision-making. It acts a
 > “Give me that moment where someone realizes they’ve been caught.”
 
 The goal is to turn that abstract direction into concrete, traceable references that a creative team can discuss together.
+
+# Project Setup
+
+[Project Setup](docs\PROJECT_SETUP.md)
