@@ -8,7 +8,10 @@ import type {
 } from './types';
 
 // Keep the backend origin centralized and configurable for local or hosted environments.
-const configuredApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000';
+const configuredApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+if (!configuredApiBaseUrl) {
+    throw new Error('NEXT_PUBLIC_API_BASE_URL must be configured.');
+}
 const API_BASE_URL = configuredApiBaseUrl.endsWith('/')
     ? configuredApiBaseUrl.slice(0, -1)
     : configuredApiBaseUrl;
@@ -44,7 +47,7 @@ export async function uploadScreenplay(file: File): Promise<ScreenplayAnalysisRe
     } catch (error) {
         if (error instanceof TypeError) {
             throw new Error(
-                'Cannot reach the analysis service. Confirm the FastAPI backend is running on port 8000.',
+                'Cannot reach the configured analysis service. Please try again shortly.',
             );
         }
         throw error;
@@ -76,7 +79,7 @@ export async function findCulturalReferences(
     } catch (error) {
         if (error instanceof TypeError) {
             throw new Error(
-                'Cannot reach the reference service. Confirm the FastAPI backend is running.',
+                'Cannot reach the configured reference service. Please try again shortly.',
             );
         }
         throw error;

@@ -1,6 +1,6 @@
 # Cultural Reference Director
 
-This repository contains the Cultural Reference Director application through Phase 4: screenplay ingestion, structured Gemini analysis, live Parallel cultural-reference discovery, deterministic ranking, native Google ADK orchestration, and an Agent Engine deployment path.
+This repository contains the production-deployed Cultural Reference Director through Phase 5: screenplay ingestion, structured Gemini analysis, live Parallel cultural-reference discovery, deterministic ranking, native Google ADK orchestration, Agent Engine, and Cloud Run delivery.
 
 - Frontend: Next.js, React, TypeScript
 - Backend: Python, FastAPI, Pydantic
@@ -157,6 +157,24 @@ After deployment, set `AGENT_ENGINE_RESOURCE_NAME` to the returned resource and 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest backend\tests -q
 ```
+
+## PRODUCTION DEPLOYMENT
+
+The public services are:
+
+- Frontend: `https://cultural-reference-web-602486879299.us-central1.run.app`
+- Backend: `https://cultural-reference-api-602486879299.us-central1.run.app`
+- Liveness/readiness: backend `/health` and `/ready`
+
+The production flow is `Browser → Next.js Cloud Run → FastAPI Cloud Run → Agent Engine → Gemini + Parallel`. Cloud Run injects `PARALLEL_API_KEY` from Secret Manager; the browser receives only `NEXT_PUBLIC_API_BASE_URL`. The API service account has Vertex AI user, log writer, monitoring metric writer, and secret-level accessor permissions; the web runtime has no project data roles.
+
+To repeat the deployment after setting an authenticated `gcloud` project, run:
+
+```powershell
+.\deployment\deploy_cloud_run.ps1
+```
+
+The backend permits the exact deployed web origin plus localhost, limits screenplay uploads to 20 MiB and reference media to 50 MiB, and applies a 55 MiB HTTP ceiling, a 280-second application timeout, concurrency 8, and at most three instances. See [Phase 5 production deployment and safety](docs/phase5_implementation.md) for IAM, safety settings, deployment evidence, and limitations.
 
 ## Notes
 

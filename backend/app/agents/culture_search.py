@@ -16,6 +16,7 @@ from backend.app.schemas.reference import (
 )
 from backend.app.schemas.scene import Scene, SceneAnalysis
 from backend.app.services.gemini_client import create_gemini_client
+from backend.app.services.gemini_safety import GEMINI_SAFETY_SETTINGS
 from backend.app.services.reference_quality import (
     build_artifact_queries,
     count_direct_artifacts,
@@ -206,6 +207,7 @@ not include site: filters and do not invent search results or URLs."""
                     system_instruction=self.SYSTEM_INSTRUCTION,
                     response_mime_type="application/json",
                     response_schema=QueryReformulation,
+                    safety_settings=GEMINI_SAFETY_SETTINGS,
                     temperature=0.2,
                 ),
             )

@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from backend.app.schemas.scene import MultimodalAnalysis, Scene
 from backend.app.services.gemini_client import create_gemini_client
+from backend.app.services.gemini_safety import GEMINI_SAFETY_SETTINGS
 
 
 # Expose validation and model failures as one service-level error.
@@ -115,6 +116,7 @@ inventing off-screen context, or transcribing the video. Return concise structur
                     system_instruction=self.SYSTEM_INSTRUCTION,
                     response_mime_type="application/json",
                     response_schema=MultimodalAnalysis,
+                    safety_settings=GEMINI_SAFETY_SETTINGS,
                     temperature=0.2,
                 ),
             )

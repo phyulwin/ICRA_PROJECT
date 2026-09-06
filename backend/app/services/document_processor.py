@@ -19,6 +19,7 @@ from backend.app.schemas.scene import (
     Scene,
 )
 from backend.app.services.gemini_client import create_gemini_client
+from backend.app.services.gemini_safety import GEMINI_SAFETY_SETTINGS
 
 
 # Expose domain-specific exceptions so the API can return clear client errors.
@@ -70,6 +71,7 @@ analyze, correct, or invent content. Return only the requested structured respon
                     system_instruction=self.SYSTEM_INSTRUCTION,
                     response_mime_type="application/json",
                     response_schema=ExtractedDocumentText,
+                    safety_settings=GEMINI_SAFETY_SETTINGS,
                     temperature=0.0,
                 ),
             )
@@ -108,6 +110,17 @@ class DocumentProcessor:
         ".fountain": "text/plain",
     }
     MAX_FILE_SIZE = 20 * 1024 * 1024
+    MAX_PDF_PAGES = 300
+    MAX_EXTRACTED_CHARACTERS = 2_000_000
+    ACCEPTED_DECLARED_TYPES = {
+        ".pdf": {"application/pdf", "application/octet-stream"},
+        ".txt": {"text/plain", "application/octet-stream"},
+        ".fountain": {
+            "text/plain",
+            "application/octet-stream",
+            "application/x-fountain",
+        },
+    }
     SCENE_HEADING = re.compile(
         r"^\s*\.?((?:INT|EXT|INT/EXT|EXT/INT|I/E)\.)\s+(.+?)\s*$",
         re.IGNORECASE,
@@ -141,10 +154,16 @@ class DocumentProcessor:
         self._native_pdf_extractor = native_pdf_extractor
 
     # Validate bytes before dispatching to the appropriate extractor.
-    def process_upload(self, filename: str, content: bytes) -> DocumentProcessingResult:
+    def process_upload(
+        self,
+        filename: str,
+        content: bytes,
+        declared_media_type: str | None = None,
+    ) -> DocumentProcessingResult:
         """Process an uploaded screenplay into structured scene objects."""
 
-        extension = Path(filename).suffix.lower()
+        safe_filename = Path(filename.replace("\\", "/")).name
+        extension = Path(safe_filename).suffix.lower()
         if extension not in self.SUPPORTED_EXTENSIONS:
             raise DocumentProcessingError(
                 "Unsupported file type. Upload a .pdf, .txt, or .fountain screenplay."
@@ -154,10 +173,29 @@ class DocumentProcessor:
         if len(content) > self.MAX_FILE_SIZE:
             raise DocumentProcessingError("The uploaded screenplay exceeds 20 MB.")
 
+        normalized_media_type = (declared_media_type or "").split(";", 1)[0].lower()
+        if (
+            normalized_media_type
+            and normalized_media_type not in self.ACCEPTED_DECLARED_TYPES[extension]
+        ):
+            raise DocumentProcessingError(
+                "The uploaded MIME type does not match the screenplay extension."
+            )
+        if extension != ".pdf" and content.lstrip().startswith(b"%PDF-"):
+            raise DocumentProcessingError(
+                "The uploaded file signature does not match its extension."
+            )
+        if extension != ".pdf" and b"\x00" in content[:4096]:
+            raise DocumentProcessingError("The screenplay text file appears to be binary.")
+
         text = self._extract_pdf(content) if extension == ".pdf" else self._decode_text(content)
+        if len(text) > self.MAX_EXTRACTED_CHARACTERS:
+            raise DocumentProcessingError(
+                "The extracted screenplay exceeds the supported text length."
+            )
         scenes = self.process_text(text)
         return DocumentProcessingResult(
-            filename=Path(filename).name,
+            filename=safe_filename,
             media_type=self.MEDIA_TYPES[extension],
             character_count=len(text),
             scenes=scenes,
@@ -193,13 +231,15 @@ class DocumentProcessor:
     def _extract_pdf(self, content: bytes) -> str:
         """Extract text from a text-based PDF screenplay."""
 
-        if b"%PDF-" not in content[:1024]:
+        if not content.lstrip()[:5] == b"%PDF-":
             raise DocumentProcessingError("The PDF is malformed or unreadable.")
 
         try:
             reader = PdfReader(BytesIO(content))
             if reader.is_encrypted and reader.decrypt("") == 0:
                 raise DocumentProcessingError("Password-protected PDFs are not supported.")
+            if len(reader.pages) > self.MAX_PDF_PAGES:
+                raise DocumentProcessingError("The PDF exceeds 300 pages.")
             pages = [(page.extract_text() or "").strip() for page in reader.pages]
         except DocumentProcessingError:
             raise

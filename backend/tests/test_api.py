@@ -51,3 +51,28 @@ def test_local_frontend_cors_preflight() -> None:
 
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+
+
+# Ensure operational probes carry stable contracts and request correlation.
+def test_health_and_readiness_endpoints() -> None:
+    """Return liveness and configuration-only readiness without upstream calls."""
+
+    health = client.get("/health")
+    ready = client.get("/ready")
+    assert health.status_code == 200
+    assert health.headers["x-request-id"]
+    assert ready.status_code in {200, 503}
+    assert "missing_configuration" in ready.json()
+
+
+# Reject obviously oversized requests before allocating an upload body.
+def test_request_size_guard_rejects_large_content_length() -> None:
+    """Return HTTP 413 when declared request size exceeds the global ceiling."""
+
+    response = client.post(
+        "/api/v1/screenplays/parse",
+        headers={"Content-Length": str(56 * 1024 * 1024)},
+        content=b"",
+    )
+    assert response.status_code == 413
+    assert "maximum" in response.json()["detail"]

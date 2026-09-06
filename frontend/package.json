@@ -5,7 +5,8 @@
         "dev": "next dev",
         "build": "next build",
         "start": "next start",
-        "lint": "eslint ."
+        "lint": "eslint .",
+        "security:check": "node scripts/check-client-secrets.mjs"
     },
     "dependencies": {
         "lucide-react": "^1.41.0",

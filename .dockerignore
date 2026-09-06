@@ -1,0 +1,14 @@
+# .dockerignore
+# Exclude local credentials, caches, tests, and frontend artifacts from backend images.
+.git
+.env
+.env.*
+!.env.example
+.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+frontend
+docs
+deployment
+backend/tests

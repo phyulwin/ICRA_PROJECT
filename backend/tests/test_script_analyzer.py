@@ -78,3 +78,4 @@ def test_script_agent_returns_validated_analysis() -> None:
     assert client.models.last_request["model"] == "test-model"
     config = client.models.last_request["config"]
     assert config.response_schema is SceneAnalysis
+    assert len(config.safety_settings) == 4

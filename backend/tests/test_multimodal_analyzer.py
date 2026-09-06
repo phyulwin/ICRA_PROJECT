@@ -75,6 +75,7 @@ def test_multimodal_image_returns_validated_output() -> None:
     assert result.camera_movement == ["slow push-in"]
     assert result.emotional_progression == ["confidence to embarrassment"]
     assert len(client.models.last_request["contents"]) == 2
+    assert len(client.models.last_request["config"].safety_settings) == 4
 
 
 # Confirm remote video assets use Google's FileData and media-processing pattern.

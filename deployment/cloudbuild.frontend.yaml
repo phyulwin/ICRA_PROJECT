@@ -1,0 +1,18 @@
+# deployment/cloudbuild.frontend.yaml
+# Build the standalone frontend with the public Cloud Run API origin.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --build-arg
+      - NEXT_PUBLIC_API_BASE_URL=${_API_BASE_URL}
+      - --tag
+      - ${_IMAGE}
+      - .
+images:
+  - ${_IMAGE}
+options:
+  logging: CLOUD_LOGGING_ONLY
+substitutions:
+  _API_BASE_URL: https://replace-with-backend.example
+  _IMAGE: us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/cultural-reference-web:latest

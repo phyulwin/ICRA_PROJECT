@@ -4,6 +4,7 @@
 import os
 
 from google.adk.agents import Agent
+from google.genai import types
 
 from backend.app.adk.callbacks import (
     after_agent_callback,
@@ -19,6 +20,7 @@ from backend.app.adk.tools import (
     rank_references,
     search_cultural_references,
 )
+from backend.app.services.gemini_safety import GEMINI_SAFETY_SETTINGS
 
 
 # Give the model strict provenance and orchestration rules while tools own execution.
@@ -52,6 +54,10 @@ root_agent = Agent(
         "discovery, assessment, and deterministic ranking."
     ),
     instruction=ROOT_AGENT_INSTRUCTION,
+    generate_content_config=types.GenerateContentConfig(
+        safety_settings=GEMINI_SAFETY_SETTINGS,
+        temperature=0.2,
+    ),
     state_schema=ProjectSessionState,
     tools=[
         analyze_scene,

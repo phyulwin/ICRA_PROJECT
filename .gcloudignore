@@ -1,0 +1,12 @@
+# .gcloudignore
+# Keep source-deploy uploads free of credentials and generated artifacts.
+.git
+.env
+.env.*
+!.env.example
+.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+frontend/node_modules
+frontend/.next

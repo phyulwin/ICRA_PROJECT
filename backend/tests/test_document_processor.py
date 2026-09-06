@@ -164,6 +164,7 @@ def test_pdf_without_text_uses_native_gemini_fallback() -> None:
     request = client.models.last_request
     assert request["model"] == "test-model"
     assert request["config"].response_schema is ExtractedDocumentText
+    assert len(request["config"].safety_settings) == 4
     assert request["contents"][1].inline_data.mime_type == "application/pdf"
 
 
@@ -183,3 +184,33 @@ def test_unsupported_and_malformed_inputs() -> None:
         except DocumentProcessingError:
             continue
         raise AssertionError(f"Expected {filename} to be rejected")
+
+
+# Confirm transport metadata and file signatures cannot disguise another format.
+def test_mime_signature_and_binary_text_validation() -> None:
+    """Reject mismatched MIME declarations, PDF disguises, and NUL text files."""
+
+    processor = DocumentProcessor()
+    invalid_inputs = (
+        ("script.pdf", b"%PDF-1.4", "text/plain"),
+        ("script.txt", b"%PDF-1.4", "text/plain"),
+        ("script.fountain", b"INT. ROOM\x00DATA", "text/plain"),
+    )
+    for filename, content, media_type in invalid_inputs:
+        try:
+            processor.process_upload(filename, content, media_type)
+        except DocumentProcessingError:
+            continue
+        raise AssertionError(f"Expected {filename} validation to fail")
+
+
+# Normalize untrusted client path components before returning upload metadata.
+def test_filename_is_reduced_to_safe_basename() -> None:
+    """Remove Windows-style path components from an upload filename."""
+
+    result = DocumentProcessor().process_upload(
+        "C:\\untrusted\\scene.txt",
+        b"EXT. STREET - DAY\n\nSAM\nWait!",
+        "text/plain",
+    )
+    assert result.filename == "scene.txt"

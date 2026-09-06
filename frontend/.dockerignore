@@ -1,0 +1,8 @@
+# frontend/.dockerignore
+# Prevent local state and secrets from entering the browser build context.
+node_modules
+.next
+.env
+.env.*
+!.env.example
+npm-debug.log*

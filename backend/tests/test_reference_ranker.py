@@ -208,6 +208,7 @@ def test_ranker_preserves_parallel_source_and_sorts() -> None:
     assert client.models.last_request["model"] == "test-model"
     config = client.models.last_request["config"]
     assert config.response_schema is GeminiReferenceAssessmentBatch
+    assert len(config.safety_settings) == 4
 
 
 # Ensure serving constraints remain separate from strict application validation.

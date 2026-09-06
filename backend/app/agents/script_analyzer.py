@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from backend.app.schemas.scene import Scene, SceneAnalysis
 from backend.app.services.gemini_client import create_gemini_client
+from backend.app.services.gemini_safety import GEMINI_SAFETY_SETTINGS
 
 
 # Provide a focused exception boundary between Gemini and the HTTP layer.
@@ -71,6 +72,7 @@ about named cultural references."""
                     system_instruction=self.SYSTEM_INSTRUCTION,
                     response_mime_type="application/json",
                     response_schema=SceneAnalysis,
+                    safety_settings=GEMINI_SAFETY_SETTINGS,
                     temperature=0.2,
                 ),
             )

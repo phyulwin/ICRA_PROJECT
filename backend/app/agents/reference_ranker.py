@@ -21,6 +21,7 @@ from backend.app.schemas.reference import (
 )
 from backend.app.schemas.scene import Scene, SceneAnalysis
 from backend.app.services.gemini_client import create_gemini_client
+from backend.app.services.gemini_safety import GEMINI_SAFETY_SETTINGS
 from backend.app.services.reference_quality import DIRECT_ARTIFACT_TYPES
 
 
@@ -200,6 +201,7 @@ similarity, and must use informational_article with artifact=false."""
                     system_instruction=self.SYSTEM_INSTRUCTION,
                     response_mime_type="application/json",
                     response_schema=GeminiReferenceAssessmentBatch,
+                    safety_settings=GEMINI_SAFETY_SETTINGS,
                     temperature=0.0,
                 ),
             )
