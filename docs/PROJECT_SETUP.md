@@ -198,3 +198,7 @@ Detailed implementation and operational instructions live in the project setup g
 - [Reference retrieval quality audit](docs/reference_retrieval_quality.md)
 - [Phase 4 ADK implementation guide](docs/phase4_implementation.md)
 - [Phase 5 production deployment and safety](docs/phase5_implementation.md)
+
+## Acknowledgement
+
+ChatGPT/Codex AI was used to assist with writing and developing this project.
