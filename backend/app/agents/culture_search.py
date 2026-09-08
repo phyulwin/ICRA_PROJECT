@@ -271,14 +271,14 @@ not include site: filters and do not invent search results or URLs."""
         """Translate scene semantics and filters into a Parallel objective."""
 
         type_labels = {
-            "all": "memes, internet culture, film, television, anime, and viral moments",
+            "all": "memes, reaction GIFs, TikTok posts, Instagram Reels, and viral moments",
             "memes": "memes",
             "reaction_gifs": "reaction GIFs",
             "internet_culture": "internet culture",
             "film": "film moments",
             "tv": "television moments",
             "anime": "anime",
-            "tiktok_short_form": "TikTok, Reels, and YouTube Shorts",
+            "tiktok_short_form": "TikTok posts and Instagram Reels",
             "instagram_reels": "Instagram Reels",
         }
         obscurity_text = (
@@ -294,10 +294,10 @@ not include site: filters and do not invent search results or URLs."""
             f"The mechanism is {scene_analysis.comedic_or_dramatic_mechanism}. Prioritize "
             f"{type_labels[preferences.reference_type.value]} from {preferences.era.value}, "
             f"matched for {preferences.match_for.value}, with {obscurity_text} recognition. "
-            "Return actual posts, videos, Shorts, Reels, GIFs, meme pages, or identifiable "
+            "Return actual TikTok posts, Instagram Reels, GIFs, meme pages, or identifiable "
             "film/TV moments showing comparable performance, body language, facial reaction, "
             "blocking, visual action, or comedic timing. Exclude news, advice, business blogs, "
-            "educational pages, SEO listicles, and articles merely discussing the topic. "
+            "educational pages, SEO listicles, Reddit, YouTube, youtu.be, and articles merely discussing the topic. "
             f"Creative target and explicit user intent: {getattr(plan, 'creative_target', '')}. "
             f"Desired performance: {getattr(plan, 'desired_performance', '')}."
         )

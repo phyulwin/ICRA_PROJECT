@@ -6,6 +6,8 @@
 
 ## About
 
+![Image](docs/screenshot_homepage.png)
+
 Cultural Reference Director is an AI-powered filmmaking assistant that analyzes screenplay scenes and discovers relevant cultural references: memes, viral internet moments, reaction media, film and television moments, anime-style references, and other recognizable visual material. It helps filmmakers move from a written scene to concrete creative inspiration without losing the original dramatic or comedic intent.
 
 Directors often know the exact effect they want, but describing the performance, reaction, physical action, timing, or visual reference can be difficult. Cultural Reference Director bridges that gap:
@@ -57,8 +59,6 @@ References are evaluated across qualities such as:
 - Recognizability
 - Cultural relevance
 
-The application returns deterministic ranked matches, score breakdowns, source metadata, and an explanation of why each reference fits the performance or scene.
-
 ### Search Refinement
 
 The scene workspace currently supports filters for:
@@ -79,7 +79,7 @@ Instead of searching for articles about lying, Cultural Reference Director looks
 
 ## Product Philosophy
 
-![Image](https://github.com/phyulwin/ICRA_PROJECT/blob/main/docs/internet_meme_screenshot_examples.jpg)
+![Image](docs/internet_meme_screenshot_examples.jpg)
 
 Cultural Reference Director does not replace creative decision-making. It acts as a visual and cultural brainstorming partner for requests such as:
 

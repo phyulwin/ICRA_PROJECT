@@ -5,7 +5,7 @@ from collections.abc import Callable, Sequence
 from functools import lru_cache
 from html.parser import HTMLParser
 from ipaddress import ip_address
-from urllib.parse import parse_qs, urljoin, urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 
@@ -24,11 +24,8 @@ TRUSTED_PREVIEW_DOMAINS = {
     "memix.com",
     "pinterest.com",
     "reactiongifs.com",
-    "reddit.com",
     "tenor.com",
     "tiktok.com",
-    "youtube.com",
-    "youtu.be",
 }
 
 PREVIEW_META_KEYS = {
@@ -74,7 +71,7 @@ class PreviewMetadataParser(HTMLParser):
 
 # Add source-provided thumbnails to ranked references without fabricating imagery.
 class ReferencePreviewResolver:
-    """Resolve YouTube or trusted source metadata previews with safe fallback."""
+    """Resolve trusted source metadata previews with safe fallback."""
 
     def __init__(
         self,
@@ -110,8 +107,8 @@ class ReferencePreviewResolver:
         if candidate.image_url is not None:
             return candidate
         source_url = str(candidate.url)
-        preview_url = youtube_thumbnail_url(source_url)
-        if preview_url is None and is_trusted_source_url(source_url):
+        preview_url = None
+        if is_trusted_source_url(source_url):
             try:
                 html = self._fetch_html(source_url)
                 preview_url = parse_preview_url(html, source_url) if html else None
@@ -122,27 +119,6 @@ class ReferencePreviewResolver:
         payload = candidate.model_dump(mode="python")
         payload["image_url"] = preview_url
         return CulturalReferenceCandidate.model_validate(payload)
-
-
-# Derive YouTube's documented public thumbnail convention without fetching HTML.
-def youtube_thumbnail_url(source_url: str) -> str | None:
-    """Return the standard high-quality thumbnail URL for a YouTube video."""
-
-    parsed = urlsplit(source_url)
-    domain = (parsed.hostname or "").casefold().removeprefix("www.")
-    video_id = ""
-    if domain == "youtu.be":
-        video_id = parsed.path.strip("/").split("/", maxsplit=1)[0]
-    elif domain.endswith("youtube.com"):
-        if parsed.path == "/watch":
-            video_id = parse_qs(parsed.query).get("v", [""])[0]
-        elif parsed.path.startswith("/shorts/"):
-            video_id = parsed.path.removeprefix("/shorts/").split("/", maxsplit=1)[0]
-    if not video_id or not all(
-        character.isalnum() or character in {"-", "_"} for character in video_id
-    ):
-        return None
-    return f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
 
 
 # Parse social metadata and resolve relative image links against the source page.

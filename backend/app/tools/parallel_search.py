@@ -22,8 +22,10 @@ from backend.app.schemas.reference import (
     SearchQueryFailure,
 )
 from backend.app.services.reference_quality import (
+    BLOCKED_SOURCE_DOMAINS,
     DIRECT_ARTIFACT_TYPES,
     classify_candidate,
+    is_blocked_source_url,
     is_promising_ambiguous_candidate,
 )
 from backend.app.services.cancellation import CancellationToken, SearchCancelled
@@ -144,6 +146,8 @@ def normalize_parallel_result(
     parsed_url = urlsplit(raw_url)
     if parsed_url.scheme not in {"http", "https"} or not parsed_url.hostname:
         raise ValueError("Parallel result did not contain a valid public URL.")
+    if is_blocked_source_url(raw_url):
+        raise ValueError("Parallel result came from a blocked source domain.")
 
     excerpts = list(_read_value(result, "excerpts", []) or [])
     snippet = "\n\n".join(str(value).strip() for value in excerpts if str(value).strip())
@@ -440,6 +444,12 @@ def _prepare_queries(queries: Sequence[str]) -> list[str]:
     seen: set[str] = set()
     for query in queries:
         concise = " ".join(str(query).strip().split()[:6])[:200]
+        target_domain = _source_target_domain(concise)
+        if target_domain and any(
+            target_domain == domain or target_domain.endswith(f".{domain}")
+            for domain in BLOCKED_SOURCE_DOMAINS
+        ):
+            continue
         key = concise.casefold()
         if concise and key not in seen:
             prepared.append(concise)
@@ -489,14 +499,14 @@ def _build_objective(
     """Translate user filters into a self-contained Parallel search objective."""
 
     type_labels = {
-        ReferenceType.ALL: "memes, internet culture, film, television, anime, and viral moments",
+        ReferenceType.ALL: "memes, reaction GIFs, TikTok posts, Instagram Reels, and viral moments",
         ReferenceType.MEMES: "memes",
         ReferenceType.INTERNET_CULTURE: "internet culture",
         ReferenceType.REACTION_GIFS: "reaction GIFs",
         ReferenceType.FILM: "film moments",
         ReferenceType.TV: "television moments",
         ReferenceType.ANIME: "anime",
-        ReferenceType.TIKTOK_SHORT_FORM: "TikTok, Reels, and YouTube Shorts",
+        ReferenceType.TIKTOK_SHORT_FORM: "TikTok posts and Instagram Reels",
         ReferenceType.INSTAGRAM_REELS: "Instagram Reels",
         ReferenceType.UNCLASSIFIED: "cultural references",
     }

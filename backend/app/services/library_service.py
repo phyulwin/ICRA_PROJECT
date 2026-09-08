@@ -19,6 +19,7 @@ from backend.app.schemas.library import (
 )
 from backend.app.schemas.reference import RankedReference
 from backend.app.schemas.scene import Scene, SceneAnalysis
+from backend.app.services.reference_quality import is_blocked_source_url
 
 
 # Give the API stable ownership and availability error categories.
@@ -131,7 +132,10 @@ class LibraryService:
                 raise ReferenceOwnershipError(
                     "The selected reference was not returned for this scene."
                 )
-            return RankedReference.model_validate(reference_snapshot.to_dict())
+            ranked = RankedReference.model_validate(reference_snapshot.to_dict())
+            if is_blocked_source_url(str(ranked.reference.url)):
+                raise ReferenceOwnershipError("The selected reference source is not permitted.")
+            return ranked
         except (LibraryNotFoundError, ReferenceOwnershipError):
             raise
         except Exception as exc:
@@ -217,7 +221,12 @@ class LibraryService:
                 .order_by("created_at", direction=firestore.Query.DESCENDING)
                 .stream()
             )
-            return [SavedReference.model_validate(item.to_dict()) for item in documents]
+            references = [SavedReference.model_validate(item.to_dict()) for item in documents]
+            return [
+                reference
+                for reference in references
+                if not is_blocked_source_url(reference.reference_url)
+            ]
         except Exception as exc:
             raise LibraryServiceError("Saved references could not be loaded.") from exc
 
@@ -237,7 +246,10 @@ class LibraryService:
             )
             if not snapshot.exists:
                 raise LibraryNotFoundError("The saved reference was not found.")
-            return SavedReference.model_validate(snapshot.to_dict())
+            reference = SavedReference.model_validate(snapshot.to_dict())
+            if is_blocked_source_url(reference.reference_url):
+                raise LibraryNotFoundError("The saved reference was not found.")
+            return reference
         except LibraryNotFoundError:
             raise
         except Exception as exc:

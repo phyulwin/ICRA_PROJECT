@@ -22,6 +22,7 @@ from backend.app.schemas.persistence import (
 )
 from backend.app.schemas.reference import RankedReference, ReferenceSearchPreferences
 from backend.app.schemas.scene import AnalyzedScene
+from backend.app.services.reference_quality import is_blocked_source_url
 
 
 class PersistenceDisabledError(RuntimeError):
@@ -301,7 +302,14 @@ class FirestoreProjectService:
             if not snapshot.exists:
                 raise ProjectNotFoundError(f"Search {search_id} was not found.")
             record = SearchRecord.model_validate(snapshot.to_dict())
-            references = [RankedReference.model_validate(document.to_dict()) for document in search_ref.collection("references").stream()]
+            references = [
+                reference
+                for reference in (
+                    RankedReference.model_validate(document.to_dict())
+                    for document in search_ref.collection("references").stream()
+                )
+                if not is_blocked_source_url(str(reference.reference.url))
+            ]
             return SearchDetail(**record.model_dump(), references=references)
         except ProjectNotFoundError:
             raise

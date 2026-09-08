@@ -26,7 +26,7 @@ from backend.app.schemas.search_plan import SearchPlan
 from backend.app.services.gemini_client import create_gemini_client
 from backend.app.services.gemini_safety import GEMINI_SAFETY_SETTINGS
 from backend.app.services.cancellation import CancellationToken
-from backend.app.services.reference_quality import DIRECT_ARTIFACT_TYPES
+from backend.app.services.reference_quality import DIRECT_ARTIFACT_TYPES, is_blocked_source_url
 
 
 # Provide a dedicated boundary for structured ranking failures.
@@ -139,7 +139,7 @@ def _matches_reference_type(candidate: CulturalReferenceCandidate, reference_typ
     artifact = candidate.cultural_reference_type
     platform = candidate.source_platform
     if reference_type == ReferenceType.TIKTOK_SHORT_FORM:
-        return platform.value in {"tiktok", "instagram", "youtube"} and artifact.value in {"tiktok", "instagram_reel", "viral_video"}
+        return platform.value in {"tiktok", "instagram"} and artifact.value in {"tiktok", "instagram_reel", "viral_video"}
     if reference_type == ReferenceType.INSTAGRAM_REELS:
         return artifact == CulturalReferenceType.INSTAGRAM_REEL
     if reference_type == ReferenceType.MEMES:
@@ -254,6 +254,7 @@ similarity, and must use informational_article with artifact=false."""
             candidate
             for candidate in candidates
             if candidate.cultural_reference_type in DIRECT_ARTIFACT_TYPES
+            and not is_blocked_source_url(str(candidate.url))
         ]
         reduced_candidates = list(
             evidence_eligible[: self.MAX_CANDIDATES_FOR_GEMINI]

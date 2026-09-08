@@ -30,7 +30,9 @@ Combine the screenplay scene, existing analysis, and preferences. The user's nat
 language intent overrides default creative assumptions but never source traceability or
 safety. Produce 6-12 genuinely diverse concise queries spanning situation, physical
 action, facial reaction, performance, emotional reversal, meme/internet terminology,
-platform-specific, and selected reference-type intent. Seek observable artifacts, not
+platform-specific, and selected reference-type intent. Use TikTok, Instagram, GIPHY,
+Tenor, Know Your Meme, and other traceable meme or GIF sources; never target Reddit,
+YouTube, or youtu.be. Seek observable artifacts, not
 topics. Include negative intents excluding informational articles, advice, tutorials,
 business blogs, news commentary, SEO listicles, and generic definitions. Never invent
 URLs or claim a result exists. Compact keys: c creative target, m mechanism, v visual

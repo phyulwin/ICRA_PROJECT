@@ -17,7 +17,6 @@ SOURCE_TARGETS: dict[ReferenceType, tuple[str, ...]] = {
     ReferenceType.ALL: (
         "tiktok.com",
         "instagram.com/reel",
-        "youtube.com/shorts",
         "giphy.com",
         "tenor.com",
     ),
@@ -26,20 +25,32 @@ SOURCE_TARGETS: dict[ReferenceType, tuple[str, ...]] = {
     ReferenceType.INTERNET_CULTURE: (
         "tiktok.com",
         "instagram.com/reel",
-        "youtube.com/shorts",
-        "reddit.com",
+        "knowyourmeme.com",
     ),
     ReferenceType.TIKTOK_SHORT_FORM: (
         "tiktok.com",
         "instagram.com/reel",
-        "youtube.com/shorts",
+        "giphy.com",
     ),
-    ReferenceType.FILM: ("youtube.com", "getyarn.io"),
-    ReferenceType.TV: ("youtube.com", "getyarn.io"),
+    ReferenceType.FILM: ("getyarn.io", "giphy.com"),
+    ReferenceType.TV: ("getyarn.io", "giphy.com"),
     ReferenceType.INSTAGRAM_REELS: ("instagram.com/reel",),
-    ReferenceType.ANIME: ("youtube.com", "reddit.com"),
-    ReferenceType.UNCLASSIFIED: ("giphy.com", "youtube.com/shorts"),
+    ReferenceType.ANIME: ("giphy.com", "tenor.com"),
+    ReferenceType.UNCLASSIFIED: ("giphy.com", "tenor.com"),
 }
+
+BLOCKED_SOURCE_DOMAINS = ("reddit.com", "youtube.com", "youtu.be")
+
+
+# Enforce the product source policy before any model evaluation or ranking.
+def is_blocked_source_url(url: str) -> bool:
+    """Return whether a URL belongs to a prohibited retrieval platform."""
+
+    try:
+        domain = (urlsplit(str(url)).hostname or "").casefold().removeprefix("www.")
+        return any(domain == blocked or domain.endswith(f".{blocked}") for blocked in BLOCKED_SOURCE_DOMAINS)
+    except (TypeError, ValueError):
+        return True
 
 ARTICLE_DOMAINS = {
     "businessinsider.com",
@@ -194,8 +205,6 @@ def infer_source_platform(domain: str) -> SourcePlatform:
         return SourcePlatform.TIKTOK
     if domain.endswith("instagram.com"):
         return SourcePlatform.INSTAGRAM
-    if domain.endswith("youtube.com") or domain == "youtu.be":
-        return SourcePlatform.YOUTUBE
     if domain.endswith("giphy.com"):
         return SourcePlatform.GIPHY
     if domain.endswith("tenor.com"):
@@ -208,8 +217,6 @@ def infer_source_platform(domain: str) -> SourcePlatform:
         return SourcePlatform.MEME
     if domain.endswith("imgur.com") or domain.endswith("reactiongifs.com"):
         return SourcePlatform.MEME
-    if domain.endswith("reddit.com"):
-        return SourcePlatform.REDDIT
     if domain.endswith("getyarn.io"):
         return SourcePlatform.FILM_TV
     return SourcePlatform.WEB
@@ -233,8 +240,6 @@ def _classify_url(
         "/reel/" in path or "/p/" in path
     ):
         return CulturalReferenceType.INSTAGRAM_REEL
-    if (domain.endswith("youtube.com") and "/shorts/" in path) or domain == "youtu.be":
-        return CulturalReferenceType.VIRAL_VIDEO
     if domain.endswith("giphy.com") and (
         "/gifs/" in path or "/clips/" in path
     ):
@@ -243,10 +248,6 @@ def _classify_url(
         return CulturalReferenceType.GIF
     if domain.endswith("knowyourmeme.com") and "/memes/" in path:
         return CulturalReferenceType.REACTION_MEME
-    if domain.endswith("reddit.com") and "/comments/" in path:
-        if any(marker in title_and_snippet for marker in ARTIFACT_QUERY_MARKERS):
-            return CulturalReferenceType.REACTION_MEME
-        return CulturalReferenceType.OTHER
     if domain.endswith("facebook.com") and "/videos/" in path:
         return CulturalReferenceType.VIRAL_VIDEO
     if "insidermemes.com" in domain and "/memes/template/" in path:
@@ -264,10 +265,6 @@ def _classify_url(
     if domain.endswith("instagram.com"):
         return CulturalReferenceType.INFORMATIONAL_ARTICLE
     if domain.endswith("getyarn.io"):
-        return CulturalReferenceType.FILM_TV_MOMENT
-    if domain.endswith("youtube.com") and path == "/watch":
-        if "anime" in title_and_snippet:
-            return CulturalReferenceType.ANIME_MOMENT
         return CulturalReferenceType.FILM_TV_MOMENT
     return CulturalReferenceType.OTHER
 
@@ -299,6 +296,8 @@ def filter_informational_candidates(
 
     accepted: list[CulturalReferenceCandidate] = []
     for candidate in candidates:
+        if is_blocked_source_url(str(candidate.url)):
+            continue
         classified = classify_candidate(candidate)
         if (
             classified.cultural_reference_type
