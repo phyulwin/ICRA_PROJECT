@@ -18,46 +18,54 @@ class SearchCancellationRegistry:
         self._enabled = os.getenv("FIRESTORE_ENABLED", "False").lower() in {"1", "true", "yes"}
         self._project = os.getenv("GOOGLE_CLOUD_PROJECT", "").strip() or None
         self._client: firestore.Client | None = None
-        self._local: dict[str, bool] = {}
+        self._local: dict[str, tuple[str, bool]] = {}
         self._lock = Lock()
 
-    def start(self, request_id: str) -> None:
+    def start(self, request_id: str, owner_id: str) -> None:
         """Register work without erasing a cancellation that arrived first."""
 
         with self._lock:
-            self._local.setdefault(request_id, False)
+            self._local.setdefault(request_id, (owner_id, False))
         if not self._enabled:
             return
         try:
-            self._document(request_id).create({"cancelled": False, "created_at": firestore.SERVER_TIMESTAMP})
+            self._document(request_id).create({"owner_id": owner_id, "cancelled": False, "created_at": firestore.SERVER_TIMESTAMP})
         except AlreadyExists:
             return
         except Exception:
             return
 
-    def cancel(self, request_id: str) -> None:
+    def cancel(self, request_id: str, owner_id: str) -> bool:
         """Publish cancellation for both the current and other service instances."""
 
         with self._lock:
-            self._local[request_id] = True
+            current = self._local.get(request_id)
+            if current is not None and current[0] != owner_id:
+                return False
+            self._local[request_id] = (owner_id, True)
         if not self._enabled:
-            return
+            return current is not None
         try:
+            snapshot = self._document(request_id).get()
+            if not snapshot.exists or snapshot.to_dict().get("owner_id") != owner_id:
+                return False
             self._document(request_id).set({"cancelled": True, "updated_at": firestore.SERVER_TIMESTAMP}, merge=True)
+            return True
         except Exception:
-            return
+            return False
 
-    def is_cancelled(self, request_id: str) -> bool:
+    def is_cancelled(self, request_id: str, owner_id: str) -> bool:
         """Return cancellation state from memory or the shared Firestore marker."""
 
         with self._lock:
-            if self._local.get(request_id, False):
+            current = self._local.get(request_id)
+            if current is not None and current == (owner_id, True):
                 return True
         if not self._enabled:
             return False
         try:
             snapshot = self._document(request_id).get()
-            return bool(snapshot.exists and snapshot.to_dict().get("cancelled"))
+            return bool(snapshot.exists and snapshot.to_dict().get("owner_id") == owner_id and snapshot.to_dict().get("cancelled"))
         except Exception:
             return False
 

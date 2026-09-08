@@ -6,6 +6,7 @@ from typing import Any
 from uuid import uuid4
 
 from google.cloud import firestore
+from google.cloud.firestore_v1.base_query import FieldFilter
 
 from backend.app.schemas.persistence import (
     AnalysisPersistencePayload,
@@ -75,7 +76,19 @@ class FirestoreProjectService:
     def _project_ref(self, project_id: str) -> Any:
         return self._db().collection("projects").document(project_id)
 
-    def save_analysis(self, payload: AnalysisPersistencePayload) -> ProjectDetail:
+    def assert_project_owner(self, project_id: str, owner_id: str) -> None:
+        """Authorize one project without exposing ownerless or foreign records."""
+
+        try:
+            snapshot = self._project_ref(project_id).get()
+            if not snapshot.exists or snapshot.to_dict().get("owner_id") != owner_id:
+                raise ProjectNotFoundError(f"Project {project_id} was not found.")
+        except ProjectNotFoundError:
+            raise
+        except Exception as exc:
+            raise PersistenceUnavailableError("Firestore could not authorize the project.") from exc
+
+    def save_analysis(self, payload: AnalysisPersistencePayload, owner_id: str) -> ProjectDetail:
         now = self._now()
         project_ref = self._project_ref(payload.project_id)
         try:
@@ -85,8 +98,11 @@ class FirestoreProjectService:
                 "Firestore could not read the project before saving analysis."
             ) from exc
         created_at = existing.to_dict().get("created_at", now) if existing.exists else now
+        if existing.exists and existing.to_dict().get("owner_id") != owner_id:
+            raise ProjectNotFoundError(f"Project {payload.project_id} was not found.")
         project = ProjectRecord(
             project_id=payload.project_id,
+            owner_id=owner_id,
             title=payload.filename.rsplit(".", 1)[0],
             filename=payload.filename,
             created_at=created_at,
@@ -105,6 +121,7 @@ class FirestoreProjectService:
                 scene_ref,
                 {
                     "scene_id": item.scene.scene_id,
+                    "owner_id": owner_id,
                     "heading": item.scene.heading,
                     "raw_text": item.scene.raw_text,
                     "scene": item.scene.model_dump(mode="json"),
@@ -119,12 +136,13 @@ class FirestoreProjectService:
             batch.commit()
         except Exception as exc:
             raise PersistenceUnavailableError("Firestore could not save screenplay analysis.") from exc
-        return self.get_project(payload.project_id)
+        return self.get_project(payload.project_id, owner_id)
 
-    def create_project(self, request: ProjectCreateRequest) -> ProjectRecord:
+    def create_project(self, request: ProjectCreateRequest, owner_id: str) -> ProjectRecord:
         now = self._now()
         project = ProjectRecord(
             project_id=request.project_id,
+            owner_id=owner_id,
             title=request.title,
             filename=request.filename,
             created_at=now,
@@ -139,7 +157,8 @@ class FirestoreProjectService:
                 raise
             raise PersistenceUnavailableError("Firestore could not create the project.") from exc
 
-    def update_project(self, project_id: str, request: ProjectUpdateRequest) -> ProjectRecord:
+    def update_project(self, project_id: str, request: ProjectUpdateRequest, owner_id: str) -> ProjectRecord:
+        self.assert_project_owner(project_id, owner_id)
         values = {key: value for key, value in request.model_dump().items() if value is not None}
         values["updated_at"] = self._now()
         try:
@@ -155,20 +174,23 @@ class FirestoreProjectService:
                 raise
             raise PersistenceUnavailableError("Firestore could not update the project.") from exc
 
-    def list_projects(self) -> list[ProjectRecord]:
+    def list_projects(self, owner_id: str) -> list[ProjectRecord]:
         try:
-            documents = self._db().collection("projects").order_by("updated_at", direction=firestore.Query.DESCENDING).stream()
-            return [ProjectRecord.model_validate(document.to_dict()) for document in documents]
+            documents = self._db().collection("projects").where(filter=FieldFilter("owner_id", "==", owner_id)).stream()
+            records = [ProjectRecord.model_validate(document.to_dict()) for document in documents]
+            return sorted(records, key=lambda item: item.updated_at, reverse=True)
         except Exception as exc:
             if isinstance(exc, (PersistenceDisabledError, PersistenceUnavailableError)):
                 raise
             raise PersistenceUnavailableError("Firestore could not list projects.") from exc
 
-    def get_project(self, project_id: str) -> ProjectDetail:
+    def get_project(self, project_id: str, owner_id: str) -> ProjectDetail:
         project_ref = self._project_ref(project_id)
         try:
             project_snapshot = project_ref.get()
             if not project_snapshot.exists:
+                raise ProjectNotFoundError(f"Project {project_id} was not found.")
+            if project_snapshot.to_dict().get("owner_id") != owner_id:
                 raise ProjectNotFoundError(f"Project {project_id} was not found.")
             project = ProjectRecord.model_validate(project_snapshot.to_dict())
             scenes = [
@@ -188,7 +210,9 @@ class FirestoreProjectService:
         project_id: str,
         scene_id: str,
         update: SelectionUpdate,
+        owner_id: str,
     ) -> ProjectDetail:
+        self.assert_project_owner(project_id, owner_id)
         scene_ref = self._project_ref(project_id).collection("scenes").document(scene_id)
         try:
             scene_snapshot = scene_ref.get()
@@ -204,7 +228,7 @@ class FirestoreProjectService:
             values["chosen_at"] = self._now() if update.reference_id else None
             scene_ref.update(values)
             self._project_ref(project_id).update({"updated_at": self._now()})
-            return self.get_project(project_id)
+            return self.get_project(project_id, owner_id)
         except (SceneNotFoundError, PersistenceDisabledError, ValueError):
             raise
         except Exception as exc:
@@ -222,8 +246,10 @@ class FirestoreProjectService:
         status: str,
         failed_queries: list[dict[str, Any]],
         warnings: list[str],
-        search_plan=None,
+        search_plan,
+        owner_id: str,
     ) -> SearchDetail:
+        self.assert_project_owner(project_id, owner_id)
         project_ref = self._project_ref(project_id)
         scene_ref = project_ref.collection("scenes").document(scene_id)
         search_id = uuid4().hex
@@ -231,6 +257,7 @@ class FirestoreProjectService:
         search_ref = scene_ref.collection("searches").document(search_id)
         record = SearchRecord(
             search_id=search_id,
+            owner_id=owner_id,
             project_id=project_id,
             scene_id=scene_id,
             queries=queries,
@@ -248,7 +275,7 @@ class FirestoreProjectService:
         batch.set(search_ref, record.model_dump(mode="json"))
         for ranked in references:
             reference_ref = search_ref.collection("references").document(ranked.reference.id)
-            batch.set(reference_ref, ranked.model_dump(mode="json"))
+            batch.set(reference_ref, {**ranked.model_dump(mode="json"), "owner_id": owner_id})
         batch.update(project_ref, {"updated_at": now, "latest_search_preferences": preferences.model_dump(mode="json")})
         try:
             batch.commit()
@@ -256,7 +283,8 @@ class FirestoreProjectService:
         except Exception as exc:
             raise PersistenceUnavailableError("Firestore could not save reference search.") from exc
 
-    def list_searches(self, project_id: str, scene_id: str) -> list[SearchRecord]:
+    def list_searches(self, project_id: str, scene_id: str, owner_id: str) -> list[SearchRecord]:
+        self.assert_project_owner(project_id, owner_id)
         try:
             documents = self._project_ref(project_id).collection("scenes").document(scene_id).collection("searches").order_by("created_at", direction=firestore.Query.DESCENDING).stream()
             return [SearchRecord.model_validate(document.to_dict()) for document in documents]
@@ -265,7 +293,8 @@ class FirestoreProjectService:
                 raise
             raise PersistenceUnavailableError("Firestore could not list search history.") from exc
 
-    def get_search(self, project_id: str, scene_id: str, search_id: str) -> SearchDetail:
+    def get_search(self, project_id: str, scene_id: str, search_id: str, owner_id: str) -> SearchDetail:
+        self.assert_project_owner(project_id, owner_id)
         try:
             search_ref = self._project_ref(project_id).collection("scenes").document(scene_id).collection("searches").document(search_id)
             snapshot = search_ref.get()
@@ -281,10 +310,12 @@ class FirestoreProjectService:
                 raise
             raise PersistenceUnavailableError("Firestore could not load search history.") from exc
 
-    def add_refinement(self, project_id: str, scene_id: str, request: RefinementRequest) -> RefinementRecord:
+    def add_refinement(self, project_id: str, scene_id: str, request: RefinementRequest, owner_id: str) -> RefinementRecord:
+        self.assert_project_owner(project_id, owner_id)
         now = self._now()
         record = RefinementRecord(
             refinement_id=uuid4().hex,
+            owner_id=owner_id,
             project_id=project_id,
             scene_id=scene_id,
             user_text=request.user_text,
@@ -300,7 +331,8 @@ class FirestoreProjectService:
                 raise
             raise PersistenceUnavailableError("Firestore could not save refinement history.") from exc
 
-    def list_refinements(self, project_id: str, scene_id: str) -> list[RefinementRecord]:
+    def list_refinements(self, project_id: str, scene_id: str, owner_id: str) -> list[RefinementRecord]:
+        self.assert_project_owner(project_id, owner_id)
         try:
             documents = self._project_ref(project_id).collection("scenes").document(scene_id).collection("refinements").order_by("created_at").stream()
             return [RefinementRecord.model_validate(document.to_dict()) for document in documents]
@@ -309,7 +341,8 @@ class FirestoreProjectService:
                 raise
             raise PersistenceUnavailableError("Firestore could not list refinement history.") from exc
 
-    def delete_project(self, project_id: str) -> None:
+    def delete_project(self, project_id: str, owner_id: str) -> None:
+        self.assert_project_owner(project_id, owner_id)
         project_ref = self._project_ref(project_id)
         try:
             if not project_ref.get().exists:

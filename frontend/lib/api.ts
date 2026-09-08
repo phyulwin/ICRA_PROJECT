@@ -14,6 +14,7 @@ import type {
     ScreenplayAnalysisResult,
     ScreenplayScene,
 } from './types';
+import { authenticatedFetch } from './firebase-auth';
 
 // Keep the backend origin centralized and configurable for local or hosted environments.
 const configuredApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
@@ -48,7 +49,7 @@ export async function uploadScreenplay(file: File, projectId: string): Promise<S
     formData.append('project_id', projectId);
 
     try {
-        const response = await fetch(`${API_BASE_URL}/api/v1/screenplays/analyze`, {
+        const response = await authenticatedFetch(`${API_BASE_URL}/api/v1/screenplays/analyze`, {
             method: 'POST',
             body: formData,
         });
@@ -73,7 +74,7 @@ export async function findCulturalReferences(
     requestId?: string,
 ): Promise<ReferenceSearchResponse> {
     try {
-        const response = await fetch(
+        const response = await authenticatedFetch(
             `${API_BASE_URL}/api/v1/scenes/${encodeURIComponent(scene.scene_id)}/references`,
             {
                 method: 'POST',
@@ -104,7 +105,7 @@ export async function findCulturalReferences(
 // Notify FastAPI across Cloud Run instances before aborting the local fetch.
 export async function cancelCulturalReferenceSearch(requestId: string): Promise<void> {
     try {
-        await fetch(`${API_BASE_URL}/api/v1/reference-searches/${encodeURIComponent(requestId)}/cancel`, {
+        await authenticatedFetch(`${API_BASE_URL}/api/v1/reference-searches/${encodeURIComponent(requestId)}/cancel`, {
             method: 'POST',
             keepalive: true,
         });
@@ -194,13 +195,13 @@ export async function deleteDirectingBoard(projectId: string, boardId: string): 
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-    const response = await fetch(`${API_BASE_URL}${path}`, init);
+    const response = await authenticatedFetch(`${API_BASE_URL}${path}`, init);
     return parseResponse<T>(response);
 }
 
 // Handle successful 204 responses without attempting to parse an empty JSON body.
 async function requestWithoutBody(path: string, init?: RequestInit): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}${path}`, init);
+    const response = await authenticatedFetch(`${API_BASE_URL}${path}`, init);
     if (!response.ok) {
         await parseResponse<never>(response);
     }

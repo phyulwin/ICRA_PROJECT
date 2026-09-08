@@ -8,7 +8,7 @@ import time
 from uuid import uuid4
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -34,6 +34,7 @@ from backend.app.services.multimodal_analyzer import MultimodalAnalysisError, Mu
 from backend.app.services.reference_service import ReferenceDiscoveryService
 from backend.app.services.cancellation import CancellationToken, SearchCancelled
 from backend.app.services.cancellation_registry import SearchCancellationRegistry
+from backend.app.services.auth_service import AuthenticationError, FirebaseAuthService
 from backend.app.services.library_service import LibraryNotFoundError, LibraryService, LibraryServiceError, ReferenceOwnershipError
 from backend.app.services.firestore_service import (
     FirestoreProjectService,
@@ -59,7 +60,7 @@ app.add_middleware(
     allow_origins=frontend_origins,
     allow_credentials=False,
     allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "X-Request-ID"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID", "X-Search-Request-ID"],
     expose_headers=["X-Request-ID"],
 )
 
@@ -98,6 +99,17 @@ script_intelligence_agent = ScriptIntelligenceAgent()
 multimodal_analyzer = MultimodalAnalyzer()
 reference_discovery_service = ReferenceDiscoveryService()
 search_cancellation_registry = SearchCancellationRegistry()
+firebase_auth_service = FirebaseAuthService()
+
+
+# Verify every private API request and expose only the trusted Firebase UID.
+def get_current_uid(authorization: str | None = Header(default=None)) -> str:
+    """Return the verified Firebase UID or reject the request uniformly."""
+
+    try:
+        return firebase_auth_service.verify_bearer_token(authorization)
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
 directing_guidance_agent = DirectingGuidanceAgent()
 agent_engine_gateway = AgentEngineGateway()
 project_persistence = FirestoreProjectService()
@@ -182,7 +194,7 @@ def read_root() -> dict[str, str]:
 
 
 @app.post("/api/v1/screenplays/parse", response_model=DocumentProcessingResult)
-async def parse_screenplay(file: UploadFile = File(...)) -> DocumentProcessingResult:
+async def parse_screenplay(file: UploadFile = File(...), owner_id: str = Depends(get_current_uid)) -> DocumentProcessingResult:
     """Validate and parse an uploaded PDF, text, or Fountain screenplay."""
 
     try:
@@ -197,6 +209,7 @@ async def parse_screenplay(file: UploadFile = File(...)) -> DocumentProcessingRe
 async def analyze_screenplay(
     file: UploadFile = File(...),
     project_id: str | None = Form(default=None),
+    owner_id: str = Depends(get_current_uid),
 ) -> ScreenplayAnalysisResult:
     """Parse an uploaded screenplay and analyze every scene through Gemini."""
 
@@ -213,14 +226,14 @@ async def analyze_screenplay(
     result = ScreenplayAnalysisResult(project_id=resolved_project_id, filename=document.filename, media_type=document.media_type, character_count=document.character_count, scenes=[AnalyzedScene(scene=scene, analysis=analysis) for scene, analysis in zip(document.scenes, analyses, strict=True)])
     if project_persistence.enabled:
         try:
-            project_persistence.save_analysis(AnalysisPersistencePayload(project_id=resolved_project_id, filename=document.filename, character_count=document.character_count, scenes=result.scenes, screenplay_metadata={"media_type": document.media_type}))
+            project_persistence.save_analysis(AnalysisPersistencePayload(project_id=resolved_project_id, filename=document.filename, character_count=document.character_count, scenes=result.scenes, screenplay_metadata={"media_type": document.media_type}), owner_id)
         except PersistenceUnavailableError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
     return result
 
 
 @app.post("/api/v1/screenplays/analyze-text", response_model=ScreenplayAnalysisResult)
-async def analyze_pasted_screenplay(request: PastedScreenplayRequest) -> ScreenplayAnalysisResult:
+async def analyze_pasted_screenplay(request: PastedScreenplayRequest, owner_id: str = Depends(get_current_uid)) -> ScreenplayAnalysisResult:
     """Analyze pasted screenplay content through the same workflow."""
 
     try:
@@ -234,7 +247,7 @@ async def analyze_pasted_screenplay(request: PastedScreenplayRequest) -> Screenp
 
 
 @app.post("/api/v1/scenes/multimodal-analyze", response_model=MultimodalAnalysisResult)
-async def analyze_multimodal_reference(scene_json: str = Form(...), media: UploadFile = File(...)) -> MultimodalAnalysisResult:
+async def analyze_multimodal_reference(scene_json: str = Form(...), media: UploadFile = File(...), owner_id: str = Depends(get_current_uid)) -> MultimodalAnalysisResult:
     """Return validated filmmaking observations for uploaded reference media."""
 
     try:
@@ -255,6 +268,7 @@ async def _run_cancellable_search(
     operation: object,
     cancellation_token: CancellationToken,
     request_id: str | None = None,
+    owner_id: str | None = None,
 ) -> ReferenceSearchResponse:
     """Cancel the active coroutine and worker checkpoints after client disconnect."""
 
@@ -272,6 +286,7 @@ async def _run_cancellable_search(
             if request_id and await run_in_threadpool(
                 search_cancellation_registry.is_cancelled,
                 request_id,
+                owner_id or "",
             ):
                 cancellation_token.cancel()
                 task.cancel()
@@ -286,16 +301,18 @@ async def _run_cancellable_search(
 
 
 @app.post("/api/v1/scenes/{scene_id}/references", response_model=ReferenceSearchResponse)
-async def find_scene_references(scene_id: str, payload: ReferenceSearchRequest, http_request: Request) -> ReferenceSearchResponse:
+async def find_scene_references(scene_id: str, payload: ReferenceSearchRequest, http_request: Request, owner_id: str = Depends(get_current_uid)) -> ReferenceSearchResponse:
     """Search and rank references through the configured ADK boundary."""
 
     if scene_id != payload.scene.scene_id:
         raise HTTPException(status_code=400, detail="The route scene_id does not match the request scene.")
     cancellation_token = CancellationToken()
     request_id = http_request.headers.get("x-search-request-id", "").strip()
-    if request_id:
-        await run_in_threadpool(search_cancellation_registry.start, request_id)
     try:
+        if payload.project_id:
+            await run_in_threadpool(project_persistence.assert_project_owner, payload.project_id, owner_id)
+        if request_id:
+            await run_in_threadpool(search_cancellation_registry.start, request_id, owner_id)
         if agent_engine_gateway.enabled:
             operation = agent_engine_gateway.find_references(payload)
         else:
@@ -309,6 +326,7 @@ async def find_scene_references(scene_id: str, payload: ReferenceSearchRequest, 
             operation,
             cancellation_token,
             request_id,
+            owner_id,
         )
         cancellation_token.raise_if_cancelled()
         if await http_request.is_disconnected():
@@ -325,12 +343,15 @@ async def find_scene_references(scene_id: str, payload: ReferenceSearchRequest, 
                 "partial_success" if response.partial_success else "success",
                 [item.model_dump(mode="json") for item in response.failed_queries],
                 response.warnings,
-                response.search_plan,
+                search_plan=response.search_plan,
+                owner_id=owner_id,
             )
             response.search_id = persisted.search_id
         return response
     except SearchCancelled:
         raise HTTPException(status_code=499, detail="Search cancelled.")
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ParallelConfigurationError as exc:
         raise HTTPException(status_code=503, detail="Reference search is not configured.") from exc
     except ParallelSearchError as exc:
@@ -346,7 +367,7 @@ async def find_scene_references(scene_id: str, payload: ReferenceSearchRequest, 
 
 # Publish a cross-instance cancellation marker before the browser closes its request.
 @app.post("/api/v1/reference-searches/{request_id}/cancel", status_code=202)
-async def cancel_reference_search(request_id: str) -> dict[str, str]:
+async def cancel_reference_search(request_id: str, owner_id: str = Depends(get_current_uid)) -> dict[str, str]:
     """Request cooperative cancellation without treating it as an application error."""
 
     try:
@@ -355,36 +376,38 @@ async def cancel_reference_search(request_id: str) -> dict[str, str]:
         UUID(request_id)
     except (TypeError, ValueError, AttributeError) as exc:
         raise HTTPException(status_code=400, detail="The search request ID is invalid.") from exc
-    await run_in_threadpool(search_cancellation_registry.cancel, request_id)
+    cancelled = await run_in_threadpool(search_cancellation_registry.cancel, request_id, owner_id)
+    if not cancelled:
+        raise HTTPException(status_code=404, detail="The active search was not found.")
     return {"status": "cancellation_requested"}
 
 
 @app.get("/api/v1/projects")
-def list_projects():
+def list_projects(owner_id: str = Depends(get_current_uid)):
     """Return lightweight project metadata for the project-history screen."""
 
     try:
-        return project_persistence.list_projects()
+        return project_persistence.list_projects(owner_id)
     except (PersistenceUnavailableError, PersistenceDisabledError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.post("/api/v1/projects")
-def create_project(request: ProjectCreateRequest):
+def create_project(request: ProjectCreateRequest, owner_id: str = Depends(get_current_uid)):
     """Create durable project metadata before a long analysis job starts."""
 
     try:
-        return project_persistence.create_project(request)
+        return project_persistence.create_project(request, owner_id)
     except (PersistenceUnavailableError, PersistenceDisabledError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/projects/{project_id}")
-def get_project(project_id: str):
+def get_project(project_id: str, owner_id: str = Depends(get_current_uid)):
     """Return a project with its persisted structured scenes."""
 
     try:
-        return project_persistence.get_project(project_id)
+        return project_persistence.get_project(project_id, owner_id)
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (PersistenceUnavailableError, PersistenceDisabledError) as exc:
@@ -392,11 +415,11 @@ def get_project(project_id: str):
 
 
 @app.patch("/api/v1/projects/{project_id}")
-def update_project(project_id: str, request: ProjectUpdateRequest):
+def update_project(project_id: str, request: ProjectUpdateRequest, owner_id: str = Depends(get_current_uid)):
     """Update project metadata without rewriting its scenes or searches."""
 
     try:
-        return project_persistence.update_project(project_id, request)
+        return project_persistence.update_project(project_id, request, owner_id)
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (PersistenceUnavailableError, PersistenceDisabledError) as exc:
@@ -404,11 +427,11 @@ def update_project(project_id: str, request: ProjectUpdateRequest):
 
 
 @app.delete("/api/v1/projects/{project_id}", status_code=204)
-def delete_project(project_id: str) -> None:
+def delete_project(project_id: str, owner_id: str = Depends(get_current_uid)) -> None:
     """Delete a project and explicitly remove nested scenes, searches, and references."""
 
     try:
-        project_persistence.delete_project(project_id)
+        project_persistence.delete_project(project_id, owner_id)
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (PersistenceUnavailableError, PersistenceDisabledError) as exc:
@@ -416,21 +439,21 @@ def delete_project(project_id: str) -> None:
 
 
 @app.get("/api/v1/projects/{project_id}/scenes/{scene_id}/searches")
-def list_searches(project_id: str, scene_id: str):
+def list_searches(project_id: str, scene_id: str, owner_id: str = Depends(get_current_uid)):
     """Return lightweight search-history records without fetching references."""
 
     try:
-        return project_persistence.list_searches(project_id, scene_id)
+        return project_persistence.list_searches(project_id, scene_id, owner_id)
     except (PersistenceUnavailableError, PersistenceDisabledError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/projects/{project_id}/scenes/{scene_id}/searches/{search_id}")
-def get_search(project_id: str, scene_id: str, search_id: str):
+def get_search(project_id: str, scene_id: str, search_id: str, owner_id: str = Depends(get_current_uid)):
     """Reopen one immutable search with its ranked references."""
 
     try:
-        return project_persistence.get_search(project_id, scene_id, search_id)
+        return project_persistence.get_search(project_id, scene_id, search_id, owner_id)
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (PersistenceUnavailableError, PersistenceDisabledError) as exc:
@@ -438,11 +461,11 @@ def get_search(project_id: str, scene_id: str, search_id: str):
 
 
 @app.put("/api/v1/projects/{project_id}/scenes/{scene_id}/selection")
-def update_selection(project_id: str, scene_id: str, request: SelectionUpdate):
+def update_selection(project_id: str, scene_id: str, request: SelectionUpdate, owner_id: str = Depends(get_current_uid)):
     """Select, change, or clear the durable reference for a scene."""
 
     try:
-        return project_persistence.update_scene_selection(project_id, scene_id, request)
+        return project_persistence.update_scene_selection(project_id, scene_id, request, owner_id)
     except SceneNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -452,21 +475,21 @@ def update_selection(project_id: str, scene_id: str, request: SelectionUpdate):
 
 
 @app.post("/api/v1/projects/{project_id}/scenes/{scene_id}/refinements")
-def add_refinement(project_id: str, scene_id: str, request: RefinementRequest):
+def add_refinement(project_id: str, scene_id: str, request: RefinementRequest, owner_id: str = Depends(get_current_uid)):
     """Preserve a user refinement before a later search replaces the current view."""
 
     try:
-        return project_persistence.add_refinement(project_id, scene_id, request)
+        return project_persistence.add_refinement(project_id, scene_id, request, owner_id)
     except (PersistenceUnavailableError, PersistenceDisabledError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/projects/{project_id}/scenes/{scene_id}/refinements")
-def list_refinements(project_id: str, scene_id: str):
+def list_refinements(project_id: str, scene_id: str, owner_id: str = Depends(get_current_uid)):
     """Return refinement history in chronological order."""
 
     try:
-        return project_persistence.list_refinements(project_id, scene_id)
+        return project_persistence.list_refinements(project_id, scene_id, owner_id)
     except (PersistenceUnavailableError, PersistenceDisabledError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -480,12 +503,13 @@ async def generate_directing_guidance(
     project_id: str,
     scene_id: str,
     request: DirectingGuidanceRequest,
+    owner_id: str = Depends(get_current_uid),
 ) -> DirectingGuidanceResult:
     """Generate and persist original directing guidance for a real reference."""
 
     try:
         scene, analysis = await run_in_threadpool(
-            library_service.get_scene_context, project_id, scene_id
+            library_service.get_scene_context, project_id, scene_id, owner_id
         )
         selected_reference = await run_in_threadpool(
             library_service.get_ranked_reference,
@@ -493,6 +517,7 @@ async def generate_directing_guidance(
             scene_id,
             request.search_id,
             request.reference_id,
+            owner_id,
         )
         log_event(
             logger,
@@ -521,6 +546,7 @@ async def generate_directing_guidance(
             scene,
             selected_reference,
             guidance,
+            owner_id,
         )
         log_event(
             logger,
@@ -552,12 +578,13 @@ async def generate_directing_guidance(
 async def get_latest_directing_guidance(
     project_id: str,
     scene_id: str,
+    owner_id: str = Depends(get_current_uid),
 ) -> DirectingGuidanceResult:
     """Return the latest directing guidance draft for one project scene."""
 
     try:
         return await run_in_threadpool(
-            library_service.get_latest_guidance, project_id, scene_id
+            library_service.get_latest_guidance, project_id, scene_id, owner_id
         )
     except LibraryNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -567,12 +594,12 @@ async def get_latest_directing_guidance(
 
 # Save one real ranked reference to the project Library.
 @app.post("/api/v1/projects/{project_id}/library/references")
-async def save_library_reference(project_id: str, request: SaveReferenceRequest):
+async def save_library_reference(project_id: str, request: SaveReferenceRequest, owner_id: str = Depends(get_current_uid)):
     """Persist a deduplicated reference loaded from a server-owned search."""
 
     try:
         return await run_in_threadpool(
-            library_service.save_reference, project_id, request
+            library_service.save_reference, project_id, request, owner_id
         )
     except LibraryNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -584,23 +611,23 @@ async def save_library_reference(project_id: str, request: SaveReferenceRequest)
 
 # List refresh-safe Library references from Firestore.
 @app.get("/api/v1/projects/{project_id}/library/references")
-async def list_library_references(project_id: str):
+async def list_library_references(project_id: str, owner_id: str = Depends(get_current_uid)):
     """Return all saved references for one project."""
 
     try:
-        return await run_in_threadpool(library_service.list_references, project_id)
+        return await run_in_threadpool(library_service.list_references, project_id, owner_id)
     except LibraryServiceError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 # Load one saved reference for detail views and ownership checks.
 @app.get("/api/v1/projects/{project_id}/library/references/{item_id}")
-async def get_library_reference(project_id: str, item_id: str):
+async def get_library_reference(project_id: str, item_id: str, owner_id: str = Depends(get_current_uid)):
     """Return one project-scoped saved reference."""
 
     try:
         return await run_in_threadpool(
-            library_service.get_reference, project_id, item_id
+            library_service.get_reference, project_id, item_id, owner_id
         )
     except LibraryNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -613,12 +640,12 @@ async def get_library_reference(project_id: str, item_id: str):
     "/api/v1/projects/{project_id}/library/references/{item_id}",
     status_code=204,
 )
-async def delete_library_reference(project_id: str, item_id: str) -> None:
+async def delete_library_reference(project_id: str, item_id: str, owner_id: str = Depends(get_current_uid)) -> None:
     """Delete one saved reference from Firestore."""
 
     try:
         await run_in_threadpool(
-            library_service.delete_reference, project_id, item_id
+            library_service.delete_reference, project_id, item_id, owner_id
         )
     except LibraryNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -631,12 +658,13 @@ async def delete_library_reference(project_id: str, item_id: str) -> None:
 async def save_library_board(
     project_id: str,
     request: SaveDirectingBoardRequest,
+    owner_id: str = Depends(get_current_uid),
 ):
     """Persist a validated directing board for one project."""
 
     try:
         return await run_in_threadpool(
-            library_service.save_directing_board, project_id, request
+            library_service.save_directing_board, project_id, request, owner_id
         )
     except LibraryNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -648,12 +676,12 @@ async def save_library_board(
 
 # List refresh-safe directing boards from Firestore.
 @app.get("/api/v1/projects/{project_id}/library/boards")
-async def list_library_boards(project_id: str):
+async def list_library_boards(project_id: str, owner_id: str = Depends(get_current_uid)):
     """Return all directing boards for one project."""
 
     try:
         return await run_in_threadpool(
-            library_service.list_directing_boards, project_id
+            library_service.list_directing_boards, project_id, owner_id
         )
     except LibraryServiceError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -661,12 +689,12 @@ async def list_library_boards(project_id: str):
 
 # Load one project-owned directing board.
 @app.get("/api/v1/projects/{project_id}/library/boards/{board_id}")
-async def get_library_board(project_id: str, board_id: str):
+async def get_library_board(project_id: str, board_id: str, owner_id: str = Depends(get_current_uid)):
     """Return one saved directing board."""
 
     try:
         return await run_in_threadpool(
-            library_service.get_directing_board, project_id, board_id
+            library_service.get_directing_board, project_id, board_id, owner_id
         )
     except LibraryNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -679,12 +707,12 @@ async def get_library_board(project_id: str, board_id: str):
     "/api/v1/projects/{project_id}/library/boards/{board_id}",
     status_code=204,
 )
-async def delete_library_board(project_id: str, board_id: str) -> None:
+async def delete_library_board(project_id: str, board_id: str, owner_id: str = Depends(get_current_uid)) -> None:
     """Delete one saved directing board from Firestore."""
 
     try:
         await run_in_threadpool(
-            library_service.delete_directing_board, project_id, board_id
+            library_service.delete_directing_board, project_id, board_id, owner_id
         )
     except LibraryNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

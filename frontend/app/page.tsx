@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { BrainCircuit, Clapperboard, FileSearch, Sparkles } from 'lucide-react';
+import { BrainCircuit, Clapperboard, FileSearch } from 'lucide-react';
 import { AppShell } from '@/components/app-shell';
 import { UploadDropzone } from '@/components/upload-dropzone';
 import { useAnalysis } from './providers';
@@ -70,10 +70,6 @@ export default function UploadPage() {
         <AppShell>
             <section className="mx-auto flex min-h-[calc(100vh-4.25rem)] max-w-6xl flex-col items-center justify-center px-5 py-12 sm:px-8">
                 <div className="w-full max-w-3xl text-center">
-                    <span className="inline-flex items-center gap-2 rounded-full border border-[#9ed9ee] bg-white px-3.5 py-1.5 text-xs font-semibold text-[#168acd] shadow-sm">
-                        <Sparkles size={14} aria-hidden="true" />
-                        Gemini-powered script intelligence
-                    </span>
                     <h1 className="mx-auto mt-6 max-w-2xl text-4xl font-bold tracking-[-0.045em] text-slate-950 sm:text-5xl">
                         Your screenplay,<br />ready for its next scene
                     </h1>

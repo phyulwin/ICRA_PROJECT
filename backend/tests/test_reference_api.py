@@ -114,3 +114,21 @@ def test_reference_endpoint_rejects_scene_mismatch(monkeypatch: object) -> None:
 
     assert response.status_code == 400
     assert fake_service.last_request is None
+
+
+# Ensure the cancellation request ID survives the browser's CORS preflight.
+def test_reference_endpoint_preflight_allows_search_request_id() -> None:
+    """Allow the production frontend to send its cancellation correlation header."""
+
+    client = TestClient(main_module.app)
+    response = client.options(
+        "/api/v1/scenes/scene_001/references",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type,x-search-request-id",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "x-search-request-id" in response.headers["access-control-allow-headers"].lower()

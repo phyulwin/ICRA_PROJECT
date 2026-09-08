@@ -3,7 +3,9 @@
 param(
     [string]$ProjectId = "sublime-night-507622-t9",
     [string]$Region = "us-central1",
-    [string]$AgentEngineResource = "projects/602486879299/locations/us-central1/reasoningEngines/5446458885734924288"
+    [string]$AgentEngineResource = "projects/602486879299/locations/us-central1/reasoningEngines/5446458885734924288",
+    [Parameter(Mandatory = $true)]
+    [string]$FirebaseApiKey
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,7 +22,8 @@ try {
 
     # Build the browser bundle with only the public API URL and deploy it without secrets.
     Push-Location "$repositoryRoot\frontend"
-    gcloud builds submit . --project=$ProjectId --config="$repositoryRoot\deployment\cloudbuild.frontend.yaml" --substitutions="_API_BASE_URL=$apiUrl,_IMAGE=$image" --quiet
+    $firebaseAuthDomain = "$ProjectId.firebaseapp.com"
+    gcloud builds submit . --project=$ProjectId --config="$repositoryRoot\deployment\cloudbuild.frontend.yaml" --substitutions="_API_BASE_URL=$apiUrl,_IMAGE=$image,_FIREBASE_API_KEY=$FirebaseApiKey,_FIREBASE_AUTH_DOMAIN=$firebaseAuthDomain,_FIREBASE_PROJECT_ID=$ProjectId" --quiet
     gcloud run deploy cultural-reference-web --image=$image --project=$ProjectId --region=$Region --service-account=$webServiceAccount --allow-unauthenticated --concurrency=40 --max-instances=3 --memory=512Mi --cpu=1 --quiet
     $webUrl = gcloud run services describe cultural-reference-web --project=$ProjectId --region=$Region --format="value(status.url)"
     $projectNumber = gcloud projects describe $ProjectId --format="value(projectNumber)"

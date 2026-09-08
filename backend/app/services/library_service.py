@@ -56,18 +56,26 @@ class LibraryService:
                 raise LibraryServiceError("Library storage is unavailable.") from exc
         return self._client
 
+    # Deny ownerless and foreign project records before resolving nested data.
+    def _assert_project_owner(self, project_id: str, owner_id: str) -> None:
+        """Authorize the verified Firebase user against the project document."""
+
+        snapshot = self._db().collection("projects").document(project_id).get()
+        if not snapshot.exists or snapshot.to_dict().get("owner_id") != owner_id:
+            raise LibraryNotFoundError("The project was not found.")
+
     # Resolve one persisted scene and its original validated analysis.
     def get_scene_context(
         self,
         project_id: str,
         scene_id: str,
+        owner_id: str,
     ) -> tuple[Scene, SceneAnalysis]:
         """Return a scene only when it exists beneath the requested project."""
 
         try:
+            self._assert_project_owner(project_id, owner_id)
             project_ref = self._db().collection("projects").document(project_id)
-            if not project_ref.get().exists:
-                raise LibraryNotFoundError("The project was not found.")
             snapshot = project_ref.collection("scenes").document(scene_id).get()
             if not snapshot.exists:
                 raise LibraryNotFoundError("The scene was not found in this project.")
@@ -88,10 +96,11 @@ class LibraryService:
         scene_id: str,
         search_id: str,
         reference_id: str,
+        owner_id: str,
     ) -> RankedReference:
         """Return one real persisted Parallel reference after ownership validation."""
 
-        self.get_scene_context(project_id, scene_id)
+        self.get_scene_context(project_id, scene_id, owner_id)
         try:
             search_ref = (
                 self._db()
@@ -133,15 +142,17 @@ class LibraryService:
         self,
         project_id: str,
         request: SaveReferenceRequest,
+        owner_id: str,
     ) -> SavedReference:
         """Create or return a project Library reference without browser-authored facts."""
 
-        scene, _ = self.get_scene_context(project_id, request.scene_id)
+        scene, _ = self.get_scene_context(project_id, request.scene_id, owner_id)
         ranked = self.get_ranked_reference(
             project_id,
             request.scene_id,
             request.search_id,
             request.reference_id,
+            owner_id,
         )
         source = ranked.reference
         identity = f"{request.scene_id}|{source.id}|{source.url}"
@@ -164,6 +175,7 @@ class LibraryService:
         }
         payload = {
             "id": item_id,
+            "owner_id": owner_id,
             "project_id": project_id,
             "scene_id": request.scene_id,
             "scene_heading": scene.heading,
@@ -189,13 +201,14 @@ class LibraryService:
             pass
         except Exception as exc:
             raise LibraryServiceError("The reference could not be saved.") from exc
-        return self.get_reference(project_id, item_id)
+        return self.get_reference(project_id, item_id, owner_id)
 
     # List only references nested beneath the requested project.
-    def list_references(self, project_id: str) -> list[SavedReference]:
+    def list_references(self, project_id: str, owner_id: str) -> list[SavedReference]:
         """Return project Library references newest first."""
 
         try:
+            self._assert_project_owner(project_id, owner_id)
             documents = (
                 self._db()
                 .collection("projects")
@@ -209,10 +222,11 @@ class LibraryService:
             raise LibraryServiceError("Saved references could not be loaded.") from exc
 
     # Resolve one Library item from the project-scoped collection.
-    def get_reference(self, project_id: str, item_id: str) -> SavedReference:
+    def get_reference(self, project_id: str, item_id: str, owner_id: str) -> SavedReference:
         """Return a saved reference or a stable not-found error."""
 
         try:
+            self._assert_project_owner(project_id, owner_id)
             snapshot = (
                 self._db()
                 .collection("projects")
@@ -230,10 +244,10 @@ class LibraryService:
             raise LibraryServiceError("The saved reference could not be loaded.") from exc
 
     # Delete only the exact project-owned Library reference requested by the client.
-    def delete_reference(self, project_id: str, item_id: str) -> None:
+    def delete_reference(self, project_id: str, item_id: str, owner_id: str) -> None:
         """Remove one saved reference after verifying it exists."""
 
-        self.get_reference(project_id, item_id)
+        self.get_reference(project_id, item_id, owner_id)
         try:
             (
                 self._db()
@@ -254,9 +268,11 @@ class LibraryService:
         scene: Scene,
         selected_reference: RankedReference,
         guidance: DirectingGuidance,
+        owner_id: str,
     ) -> DirectingGuidanceResult:
         """Store one server-generated guidance draft with its verified source."""
 
+        self._assert_project_owner(project_id, owner_id)
         guidance_id = uuid4().hex
         draft_ref = (
             self._db()
@@ -267,6 +283,7 @@ class LibraryService:
         )
         payload = {
             "id": guidance_id,
+            "owner_id": owner_id,
             "project_id": project_id,
             "search_id": search_id,
             "scene_id": scene.scene_id,
@@ -295,10 +312,12 @@ class LibraryService:
         self,
         project_id: str,
         scene_id: str,
+        owner_id: str,
     ) -> DirectingGuidanceResult:
         """Load the latest generated guidance owned by one project scene."""
 
         try:
+            self._assert_project_owner(project_id, owner_id)
             documents = (
                 self._db()
                 .collection("projects")
@@ -330,10 +349,11 @@ class LibraryService:
         self,
         project_id: str,
         request: SaveDirectingBoardRequest,
+        owner_id: str,
     ) -> SavedDirectingBoard:
         """Persist a directing board without trusting browser-authored guidance."""
 
-        scene, _ = self.get_scene_context(project_id, request.scene_id)
+        scene, _ = self.get_scene_context(project_id, request.scene_id, owner_id)
         try:
             draft_ref = (
                 self._db()
@@ -359,6 +379,7 @@ class LibraryService:
             board_ref.create(
                 {
                     "id": board_id,
+                    "owner_id": owner_id,
                     "project_id": project_id,
                     "scene_id": request.scene_id,
                     "scene_heading": scene.heading,
@@ -370,17 +391,18 @@ class LibraryService:
                     "updated_at": firestore.SERVER_TIMESTAMP,
                 }
             )
-            return self.get_directing_board(project_id, board_id)
+            return self.get_directing_board(project_id, board_id, owner_id)
         except (LibraryNotFoundError, ReferenceOwnershipError):
             raise
         except Exception as exc:
             raise LibraryServiceError("The directing board could not be saved.") from exc
 
     # List all directing boards scoped to one project.
-    def list_directing_boards(self, project_id: str) -> list[SavedDirectingBoard]:
+    def list_directing_boards(self, project_id: str, owner_id: str) -> list[SavedDirectingBoard]:
         """Return project directing boards newest first."""
 
         try:
+            self._assert_project_owner(project_id, owner_id)
             documents = (
                 self._db()
                 .collection("projects")
@@ -398,10 +420,12 @@ class LibraryService:
         self,
         project_id: str,
         board_id: str,
+        owner_id: str,
     ) -> SavedDirectingBoard:
         """Return one directing board or a stable not-found error."""
 
         try:
+            self._assert_project_owner(project_id, owner_id)
             snapshot = (
                 self._db()
                 .collection("projects")
@@ -419,10 +443,10 @@ class LibraryService:
             raise LibraryServiceError("The directing board could not be loaded.") from exc
 
     # Delete only the requested board and retain its source search and guidance draft.
-    def delete_directing_board(self, project_id: str, board_id: str) -> None:
+    def delete_directing_board(self, project_id: str, board_id: str, owner_id: str) -> None:
         """Remove one directing board after confirming project ownership."""
 
-        self.get_directing_board(project_id, board_id)
+        self.get_directing_board(project_id, board_id, owner_id)
         try:
             (
                 self._db()

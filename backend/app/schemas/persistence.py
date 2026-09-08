@@ -14,6 +14,7 @@ class ProjectRecord(BaseModel):
     """Durable project metadata and the latest screenplay analysis."""
 
     project_id: str
+    owner_id: str = ""
     title: str
     filename: str
     created_at: datetime
@@ -36,6 +37,7 @@ class SearchRecord(BaseModel):
     """One immutable reference-search execution."""
 
     search_id: str
+    owner_id: str = ""
     project_id: str
     scene_id: str
     queries: list[str] = Field(default_factory=list)
@@ -61,6 +63,7 @@ class RefinementRecord(BaseModel):
     """One user refinement and the searches it connects."""
 
     refinement_id: str
+    owner_id: str = ""
     project_id: str
     scene_id: str
     user_text: str

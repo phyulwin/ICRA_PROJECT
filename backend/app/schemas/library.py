@@ -23,6 +23,7 @@ class SavedReference(BaseModel):
     """Durable source-attributed reference derived only from persisted ranking."""
 
     id: str
+    owner_id: str
     project_id: str
     scene_id: str
     scene_heading: str
@@ -58,6 +59,7 @@ class SavedDirectingBoard(BaseModel):
     """Durable directing workspace stored beneath its owning project."""
 
     id: str
+    owner_id: str
     project_id: str
     scene_id: str
     scene_heading: str
@@ -74,6 +76,7 @@ class DirectingGuidanceDraft(BaseModel):
     """Server-owned generated guidance and its immutable ranked source."""
 
     id: str
+    owner_id: str
     project_id: str
     search_id: str
     scene_id: str
