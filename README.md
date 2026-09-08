@@ -79,7 +79,7 @@ Instead of searching for articles about lying, Cultural Reference Director looks
 
 ## Product Philosophy
 
-![Image](docs\internet_meme_screenshot_examples.jpg)
+![Image](https://github.com/phyulwin/ICRA_PROJECT/blob/main/docs/internet_meme_screenshot_examples.jpg)
 
 Cultural Reference Director does not replace creative decision-making. It acts as a visual and cultural brainstorming partner for requests such as:
 
