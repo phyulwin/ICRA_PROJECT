@@ -26,6 +26,7 @@ from backend.app.services.reference_quality import (
     classify_candidate,
     is_promising_ambiguous_candidate,
 )
+from backend.app.services.cancellation import CancellationToken, SearchCancelled
 
 
 # Provide an explicit configuration error without leaking credential values.
@@ -206,9 +207,12 @@ class ParallelSearchClient:
         max_results: int = 24,
         objective: str | None = None,
         session_id: str | None = None,
+        cancellation_token: CancellationToken | None = None,
     ) -> CulturalSearchResult:
         """Call Parallel Search at runtime and normalize traceable web results."""
 
+        token = cancellation_token or CancellationToken()
+        token.raise_if_cancelled()
         cleaned_queries = _prepare_queries(queries)
         if not cleaned_queries:
             return CulturalSearchResult(candidates=[], searched_queries=[])
@@ -227,6 +231,7 @@ class ParallelSearchClient:
         )
 
         for query in cleaned_queries:
+            token.raise_if_cancelled()
             searched_queries.append(query)
             try:
                 advanced_settings: dict[str, object] = {
@@ -246,6 +251,7 @@ class ParallelSearchClient:
                     session_id=request_session_id,
                     advanced_settings=advanced_settings,
                 )
+                token.raise_if_cancelled()
                 successful_calls += 1
                 search_id = str(_read_value(response, "search_id", ""))
                 session_id = str(_read_value(response, "session_id", ""))
@@ -271,6 +277,8 @@ class ParallelSearchClient:
                         warnings.append(
                             f"Parallel returned one malformed result for query: {query}"
                         )
+            except SearchCancelled:
+                raise
             except Exception as exc:
                 failed_queries.append(_normalize_error(query, exc))
 
@@ -297,9 +305,12 @@ class ParallelSearchClient:
         objective: str,
         search_queries: Sequence[str],
         limit: int = 4,
+        cancellation_token: CancellationToken | None = None,
     ) -> tuple[list[CulturalReferenceCandidate], list[str], int]:
         """Add focused excerpts to ambiguous candidates while controlling cost."""
 
+        token = cancellation_token or CancellationToken()
+        token.raise_if_cancelled()
         selected = [
             candidate
             for candidate in candidates
@@ -332,6 +343,9 @@ class ParallelSearchClient:
                 max_chars_total=8000,
                 client_model=os.getenv("GOOGLE_GENAI_MODEL", "gemini-2.5-flash"),
             )
+            token.raise_if_cancelled()
+        except SearchCancelled:
+            raise
         except Exception as exc:
             return (
                 list(candidates),

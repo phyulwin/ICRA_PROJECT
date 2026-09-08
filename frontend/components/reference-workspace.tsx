@@ -12,13 +12,14 @@ import {
     LoaderCircle,
     Search,
     SlidersHorizontal,
+    Square,
 } from 'lucide-react';
 import { AppShell } from './app-shell';
 import { OpportunityBadge } from './opportunity-badge';
 import { ProjectLoading, ProjectNotFound } from './project-state';
 import { SceneSidebar } from './scene-sidebar';
 import { SceneTabs } from './scene-tabs';
-import { findCulturalReferences, generateDirectingGuidance, getSearch, listLibraryReferences, listRefinements, listSearches, saveLibraryReference, updateSelection } from '@/lib/api';
+import { cancelCulturalReferenceSearch, findCulturalReferences, generateDirectingGuidance, getSearch, listLibraryReferences, listRefinements, listSearches, saveLibraryReference, updateSelection } from '@/lib/api';
 import type {
     CulturalReferenceType,
     MatchFor,
@@ -33,7 +34,7 @@ import type {
 } from '@/lib/types';
 import { useProject } from '@/lib/use-project';
 
-type SearchStatus = 'idle' | 'searching' | 'success' | 'error';
+type SearchStatus = 'idle' | 'searching' | 'success' | 'cancelled' | 'error';
 
 const DEFAULT_PREFERENCES: ReferenceSearchPreferences = {
     reference_type: 'all',
@@ -99,6 +100,7 @@ export function ReferenceWorkspace() {
     const [savingReferenceId, setSavingReferenceId] = useState<string | null>(null);
     const [directingReferenceId, setDirectingReferenceId] = useState<string | null>(null);
     const requestController = useRef<AbortController | null>(null);
+    const activeRequestId = useRef<string | null>(null);
 
     const item = useMemo(
         () => snapshot?.result.scenes.find(
@@ -143,8 +145,15 @@ export function ReferenceWorkspace() {
         return () => { cancelled = true; };
     }, [projectId, sceneId]);
 
-    // Cancel any in-flight fetch if the user leaves the scene route.
-    useEffect(() => () => requestController.current?.abort(), []);
+    // Cancel any in-flight fetch when the scene changes or the workspace unmounts.
+    useEffect(() => () => {
+        requestController.current?.abort();
+        requestController.current = null;
+        if (activeRequestId.current) {
+            void cancelCulturalReferenceSearch(activeRequestId.current);
+            activeRequestId.current = null;
+        }
+    }, [projectId, sceneId]);
 
     // Restore saved-state badges from the backend Library after a browser refresh.
     useEffect(() => {
@@ -157,11 +166,15 @@ export function ReferenceWorkspace() {
     async function runSearch() {
         if (!item || item.analysis.reference_queries.length === 0) return;
 
+        if (activeRequestId.current) {
+            void cancelCulturalReferenceSearch(activeRequestId.current);
+        }
         requestController.current?.abort();
         const controller = new AbortController();
+        const requestId = crypto.randomUUID();
         requestController.current = controller;
+        activeRequestId.current = requestId;
         setError(null);
-        setSelectedId(null);
         setStatus('searching');
 
         try {
@@ -171,6 +184,7 @@ export function ReferenceWorkspace() {
                 item.analysis,
                 preferences,
                 controller.signal,
+                requestId,
             );
             if (controller.signal.aborted) return;
             setResult(response);
@@ -178,7 +192,12 @@ export function ReferenceWorkspace() {
             setSelectedId(response.references[0]?.reference.id ?? null);
             setStatus('success');
         } catch (reason) {
-            if (controller.signal.aborted) return;
+            if (controller.signal.aborted) {
+                if (requestController.current === controller) {
+                    setStatus('cancelled');
+                }
+                return;
+            }
             setError(
                 reason instanceof Error
                     ? reason.message
@@ -186,8 +205,26 @@ export function ReferenceWorkspace() {
             );
             setStatus('error');
         } finally {
-            requestController.current = null;
+            if (requestController.current === controller) {
+                requestController.current = null;
+                activeRequestId.current = null;
+            }
         }
+    }
+
+    // Abort the network request immediately while retaining the last good result.
+    function cancelSearch() {
+        const controller = requestController.current;
+        if (!controller) return;
+        const requestId = activeRequestId.current;
+        requestController.current = null;
+        activeRequestId.current = null;
+        if (requestId) {
+            void cancelCulturalReferenceSearch(requestId);
+        }
+        controller.abort();
+        setError(null);
+        setStatus('cancelled');
     }
 
     async function chooseReference(referenceId: string | null) {
@@ -267,7 +304,7 @@ export function ReferenceWorkspace() {
     if (!snapshot || !item) return <AppShell><ProjectNotFound /></AppShell>;
 
     const isSearching = status === 'searching';
-    const canSearch = item.analysis.reference_queries.length > 0 && !isSearching;
+    const canSearch = item.analysis.reference_queries.length > 0;
 
     return (
         <AppShell>
@@ -295,9 +332,9 @@ export function ReferenceWorkspace() {
                                 <label className="text-xs font-semibold text-slate-600">Recognition · {preferences.recognition}<input className="mt-3 w-full accent-violet-700" type="range" min="0" max="100" value={preferences.recognition} onChange={(event) => setPreferences({ ...preferences, recognition: Number(event.target.value) })} /><span className="mt-1 flex justify-between text-[10px] font-medium text-slate-400"><span>Niche</span><span>Iconic</span></span></label>
                                 <SelectControl label="Results" value={String(preferences.max_results)} onChange={(value) => setPreferences({ ...preferences, max_results: Number(value) })} options={[["3", "Top 3"], ["4", "Top 4"], ["5", "Top 5"], ["6", "Top 6"]]} />
                             </div>
-                            <button type="button" onClick={runSearch} disabled={!canSearch} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-violet-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-violet-800 disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-auto">
-                                {isSearching ? <LoaderCircle size={16} className="animate-spin" /> : <Search size={16} />}
-                                {result ? 'Find more references' : 'Find Cultural References'}
+                            <button type="button" onClick={isSearching ? cancelSearch : runSearch} disabled={!canSearch} className={`mt-6 inline-flex w-full items-center justify-center gap-2 rounded-lg px-5 py-3 text-sm font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-auto ${isSearching ? 'bg-rose-600 hover:bg-rose-700' : 'bg-violet-700 hover:bg-violet-800'}`}>
+                                {isSearching ? <Square size={15} fill="currentColor" /> : <Search size={16} />}
+                                {isSearching ? 'Cancel Search' : result ? 'Find more references' : 'Find Cultural References'}
                             </button>
                             {item.analysis.reference_queries.length === 0 && <p className="mt-3 text-sm text-slate-500">Gemini did not identify a reference opportunity for this scene.</p>}
                         </section>
@@ -306,8 +343,9 @@ export function ReferenceWorkspace() {
                         {refinements.length > 0 && <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-bold text-slate-950">Refinement history</h2><div className="mt-3 space-y-2">{refinements.map((refinement) => <div key={refinement.refinement_id} className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600"><span className="font-semibold text-slate-900">{refinement.user_text}</span><span className="ml-2">{new Date(refinement.created_at).toLocaleString()}</span></div>)}</div></section>}
 
                         {isSearching && <SearchProgress status={status} />}
+                        {status === 'cancelled' && <section role="status" className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5"><p className="font-semibold text-amber-900">Search cancelled</p><p className="mt-1 text-sm text-amber-700">Your previous references remain available. You can start another search now.</p></section>}
                         {error && <section className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-5"><p className="font-semibold text-rose-900">Reference search failed</p><p className="mt-2 text-sm text-rose-700">{error}</p></section>}
-                        {status === 'success' && result && <ReferenceResults result={result} selectedId={selectedId} onSelect={setSelectedId} onChoose={chooseReference} onSave={saveReference} onDirect={useForDirecting} savedReferenceIds={savedReferenceIds} savingReferenceId={savingReferenceId} directingReferenceId={directingReferenceId} />}
+                        {result && <ReferenceResults result={result} selectedId={selectedId} onSelect={setSelectedId} onChoose={chooseReference} onSave={saveReference} onDirect={useForDirecting} savedReferenceIds={savedReferenceIds} savingReferenceId={savingReferenceId} directingReferenceId={directingReferenceId} />}
                         {selected && <ReferenceDetail reference={selected} sceneText={item.scene.raw_text} onSave={saveReference} onDirect={useForDirecting} saved={savedReferenceIds.has(selected.reference.id)} saving={savingReferenceId === selected.reference.id} directing={directingReferenceId === selected.reference.id} />}
                     </div>
                 </section>

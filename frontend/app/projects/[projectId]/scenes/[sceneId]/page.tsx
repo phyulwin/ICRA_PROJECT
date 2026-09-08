@@ -3,13 +3,13 @@
 
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useState } from 'react';
 import {
     ArrowLeft,
     Brain,
     Clapperboard,
     Eye,
     Lightbulb,
-    MessageCircleQuestion,
     Search,
     Target,
     Users,
@@ -20,6 +20,14 @@ import { ProjectLoading, ProjectNotFound } from '@/components/project-state';
 import { SceneSidebar } from '@/components/scene-sidebar';
 import { SceneTabs } from '@/components/scene-tabs';
 import { useProject } from '@/lib/use-project';
+
+type AccordionProps = {
+    icon: typeof Target;
+    title: string;
+    children: React.ReactNode;
+    preview?: string;
+    contentClassName?: string;
+};
 
 // Translate every structured Gemini field into a scannable filmmaking workspace.
 export default function SceneDetailPage() {
@@ -59,20 +67,19 @@ export default function SceneDetailPage() {
                                     </div>
                                 </section>
 
-                                <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                                    <div className="flex items-center gap-2 text-slate-950"><Clapperboard size={18} className="text-violet-600" /><h2 className="font-bold">Scene text</h2></div>
-                                    <pre className="mt-4 max-h-80 overflow-auto whitespace-pre-wrap rounded-xl bg-slate-950 p-5 font-mono text-xs leading-6 text-slate-200">{scene.raw_text}</pre>
-                                </section>
+                                <Accordion icon={Clapperboard} title="Scene Text" preview={scene.raw_text.split(/\s+/).slice(0, 12).join(' ')} contentClassName="max-h-80 overflow-auto">
+                                    <pre className="whitespace-pre-wrap rounded-xl bg-slate-950 p-5 font-mono text-xs leading-6 text-slate-200">{scene.raw_text}</pre>
+                                </Accordion>
 
                                 <div className="grid gap-5 md:grid-cols-2">
-                                    <InsightCard icon={Target} title="Mechanism"><p>{analysis.comedic_or_dramatic_mechanism}</p></InsightCard>
-                                    <InsightCard icon={Users} title="Character intentions">
+                                    <Accordion icon={Target} title="Mechanism"><p>{analysis.comedic_or_dramatic_mechanism}</p></Accordion>
+                                    <Accordion icon={Users} title="Character Intentions">
                                         <ul className="space-y-3">{analysis.character_intentions.map((entry, index) => <li key={`${entry.character}-${index}`}><strong className="text-slate-900">{entry.character}</strong><span className="mt-0.5 block">{entry.intention}</span></li>)}</ul>
-                                    </InsightCard>
-                                    <InsightCard icon={Brain} title="Important actions"><BulletList values={analysis.important_actions} /></InsightCard>
-                                    <InsightCard icon={Eye} title="Visual characteristics"><BulletList values={analysis.visual_characteristics} /></InsightCard>
-                                    <InsightCard icon={Lightbulb} title="Cultural concepts"><BulletList values={analysis.cultural_concepts} /></InsightCard>
-                                    <InsightCard icon={Users} title="Characters"><div className="flex flex-wrap gap-2">{analysis.characters.map((character) => <Tag key={character}>{character}</Tag>)}</div></InsightCard>
+                                    </Accordion>
+                                    <Accordion icon={Brain} title="Important Actions"><BulletList values={analysis.important_actions} /></Accordion>
+                                    <Accordion icon={Eye} title="Visual Characteristics"><BulletList values={analysis.visual_characteristics} /></Accordion>
+                                    <Accordion icon={Lightbulb} title="Cultural Concepts"><BulletList values={analysis.cultural_concepts} /></Accordion>
+                                    <Accordion icon={Users} title="Characters"><div className="flex flex-wrap gap-2">{analysis.characters.map((character) => <Tag key={character}>{character}</Tag>)}</div></Accordion>
                                 </div>
                             </div>
 
@@ -93,10 +100,6 @@ export default function SceneDetailPage() {
                                     {analysis.reference_queries.length > 0 && <Link href={`/projects/${projectId}/scenes/${sceneId}/references`} className="mt-4 inline-flex w-full justify-center rounded-lg bg-violet-700 px-4 py-2.5 text-xs font-semibold text-white hover:bg-violet-800">Find Cultural References</Link>}
                                 </section>
 
-                                <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                                    <div className="flex items-center gap-2"><MessageCircleQuestion size={17} className="text-violet-600" /><h2 className="text-sm font-bold">Why this matters</h2></div>
-                                    <p className="mt-3 text-sm leading-6 text-slate-600">Parallel retrieves real source pages, Gemini evaluates their fit, and application code calculates the final ranking.</p>
-                                </section>
                             </aside>
                         </div>
                     </div>
@@ -106,15 +109,27 @@ export default function SceneDetailPage() {
     );
 }
 
-// Render a titled structured-analysis card with a consistent icon cue.
-function InsightCard({ icon: Icon, title, children }: { icon: typeof Target; title: string; children: React.ReactNode }) {
+// Keep secondary analysis compact until the user asks to inspect it.
+function Accordion({ icon: Icon, title, children, preview, contentClassName = '' }: AccordionProps) {
+    const [open, setOpen] = useState(false);
+
     return (
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 text-sm leading-6 text-slate-600 shadow-sm">
-            <div className="mb-3 flex items-center gap-2 text-slate-950"><Icon size={17} className="text-violet-600" /><h2 className="font-bold">{title}</h2></div>
-            {children}
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white text-sm leading-6 text-slate-600 shadow-sm">
+            <button type="button" aria-expanded={open} onClick={() => setOpen((current) => !current)} className="flex w-full items-center justify-between gap-3 p-5 text-left text-slate-950">
+                <span className="flex min-w-0 items-center gap-2"><Icon size={17} className="shrink-0 text-violet-600" /><span className="font-bold">{title}</span></span>
+                <span aria-hidden="true" className="shrink-0 text-lg font-normal leading-none text-violet-700">{open ? '▲' : '▼'}</span>
+            </button>
+            {preview && !open && <p className="truncate px-5 pb-5 text-xs text-slate-500">{preview}{preview.length < scenePreviewLimit ? '' : '...'}</p>}
+            <div className={`grid transition-[grid-template-rows] duration-300 ease-out ${open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+                <div className="min-h-0 overflow-hidden">
+                    <div className={`border-t border-slate-100 p-5 ${contentClassName}`}>{children}</div>
+                </div>
+            </div>
         </section>
     );
 }
+
+const scenePreviewLimit = 72;
 
 // Render short categorical values as restrained workspace tags.
 function Tag({ children }: { children: React.ReactNode }) {

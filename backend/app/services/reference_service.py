@@ -9,6 +9,7 @@ from backend.app.schemas.reference import (
     ReferenceSearchResponse,
 )
 from backend.app.services.reference_preview import ReferencePreviewResolver
+from backend.app.services.cancellation import CancellationToken
 
 
 # Keep the endpoint thin and make the complete Phase 3 workflow testable.
@@ -34,7 +35,12 @@ class ReferenceDiscoveryService:
     def find_references(
         self,
         request: ReferenceSearchRequest,
+        cancellation_token: CancellationToken | None = None,
     ) -> ReferenceSearchResponse:
         """Discover, assess, and rank traceable cultural references."""
 
-        return self._orchestrator.find_references(request, explicit_search=True)
+        return self._orchestrator.find_references(
+            request,
+            explicit_search=True,
+            cancellation_token=cancellation_token,
+        )

@@ -27,6 +27,7 @@ from backend.app.tools.parallel_search import (
     ParallelSearchClient,
     deduplicate_candidates,
 )
+from backend.app.services.cancellation import CancellationToken, SearchCancelled
 
 
 # Keep search-orchestration failures separate from provider failures.
@@ -81,9 +82,12 @@ not include site: filters and do not invent search results or URLs."""
         attempted_queries: list[str] | None = None,
         failure_diagnosis: str | None = None,
         allow_artifact_retry: bool = True,
+        cancellation_token: CancellationToken | None = None,
     ) -> CulturalSearchResult:
         """Return normalized real candidates sourced exclusively from Parallel."""
 
+        token = cancellation_token or CancellationToken()
+        token.raise_if_cancelled()
         plan = self._search_planner.plan(
             scene,
             scene_analysis,
@@ -91,6 +95,7 @@ not include site: filters and do not invent search results or URLs."""
             attempted_queries=attempted_queries,
             failure_diagnosis=failure_diagnosis,
         )
+        token.raise_if_cancelled()
         original_queries = plan.queries
         if not original_queries:
             return CulturalSearchResult(
@@ -110,7 +115,9 @@ not include site: filters and do not invent search results or URLs."""
             max_results=self.RAW_CANDIDATE_LIMIT,
             objective=objective,
             session_id=retrieval_session_id,
+            cancellation_token=token,
         )
+        token.raise_if_cancelled()
         initial_accepted, _ = filter_informational_candidates(initial.candidates)
         refined = None
         if allow_artifact_retry and (
@@ -128,6 +135,7 @@ not include site: filters and do not invent search results or URLs."""
                         "replace topic language with observable reactions and moments."
                     ),
                 )
+                token.raise_if_cancelled()
                 refined_queries = plan.queries
                 refined = self._parallel_search.search_cultural_references(
                     queries=refined_queries,
@@ -138,7 +146,10 @@ not include site: filters and do not invent search results or URLs."""
                     max_results=self.RAW_CANDIDATE_LIMIT,
                     objective=objective,
                     session_id=retrieval_session_id,
+                    cancellation_token=token,
                 )
+            except SearchCancelled:
+                raise
             except Exception as exc:
                 initial.warnings.append(
                     "The second artifact-search round was unavailable: "
@@ -152,6 +163,7 @@ not include site: filters and do not invent search results or URLs."""
             ],
             limit=self.RAW_CANDIDATE_LIMIT,
         )
+        token.raise_if_cancelled()
         accepted, _ = filter_informational_candidates(combined_raw)
         enriched, extract_warnings, extracted_count = (
             self._parallel_search.enrich_ambiguous_candidates(
@@ -161,8 +173,10 @@ not include site: filters and do not invent search results or URLs."""
                     *initial.searched_queries,
                     *(refined.searched_queries if refined is not None else []),
                 ],
+                cancellation_token=token,
             )
         )
+        token.raise_if_cancelled()
         final_candidates, _ = filter_informational_candidates(enriched)
         searched_queries = [
             *initial.searched_queries,

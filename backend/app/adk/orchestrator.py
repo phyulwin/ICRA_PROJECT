@@ -13,6 +13,7 @@ from backend.app.schemas.reference import (
 from backend.app.schemas.scene import ReferenceOpportunity
 from backend.app.services.reference_preview import ReferencePreviewResolver
 from backend.app.tools.parallel_search import deduplicate_candidates
+from backend.app.services.cancellation import CancellationToken, SearchCancelled
 
 
 logger = logging.getLogger("cultural_reference_director.workflow")
@@ -39,10 +40,13 @@ class ReferenceWorkflowOrchestrator:
         request: ReferenceSearchRequest,
         *,
         explicit_search: bool = False,
+        cancellation_token: CancellationToken | None = None,
     ) -> ReferenceSearchResponse:
         """Execute the invariant workflow and skip unsuitable scenes by default."""
 
         started_at = monotonic()
+        token = cancellation_token or CancellationToken()
+        token.raise_if_cancelled()
         if (
             request.scene_analysis.reference_opportunity == ReferenceOpportunity.NONE
             and not explicit_search
@@ -65,14 +69,18 @@ class ReferenceWorkflowOrchestrator:
                 request.scene_analysis,
                 request.preferences,
                 allow_artifact_retry=False,
+                cancellation_token=token,
             )
+            token.raise_if_cancelled()
             ranked = self._ranker.rank(
                 request.scene,
                 request.scene_analysis,
                 search_result.candidates,
                 request.preferences,
                 search_result.search_plan,
+                cancellation_token=token,
             )
+            token.raise_if_cancelled()
             # Permit one diagnosed reformulation only after observing ranked quality.
             if len(ranked) < 3 and search_result.retry_count == 0:
                 refined = self._search_agent.search(
@@ -85,11 +93,15 @@ class ReferenceWorkflowOrchestrator:
                         "thresholds; reduce topical wording and seek observable behavior."
                     ),
                     allow_artifact_retry=False,
+                    cancellation_token=token,
                 )
+                token.raise_if_cancelled()
                 combined = deduplicate_candidates([*search_result.candidates, *refined.candidates], limit=24)
-                ranked = self._ranker.rank(request.scene, request.scene_analysis, combined, request.preferences, refined.search_plan)
+                ranked = self._ranker.rank(request.scene, request.scene_analysis, combined, request.preferences, refined.search_plan, cancellation_token=token)
                 search_result = search_result.model_copy(update={"candidates": combined, "searched_queries": [*search_result.searched_queries, *refined.searched_queries], "failed_queries": [*search_result.failed_queries, *refined.failed_queries], "warnings": [*search_result.warnings, *refined.warnings], "raw_candidate_count": len(combined), "retry_count": 1, "search_plan": refined.search_plan})
+            token.raise_if_cancelled()
             ranked = self._preview_resolver.enrich_ranked_references(ranked)
+            token.raise_if_cancelled()
             response = ReferenceSearchResponse(
                 scene_id=request.scene.scene_id,
                 references=ranked,
@@ -116,6 +128,12 @@ class ReferenceWorkflowOrchestrator:
                 },
             )
             return response
+        except SearchCancelled:
+            logger.info(
+                "reference_workflow_cancelled",
+                extra={"scene_id": request.scene.scene_id},
+            )
+            raise
         except Exception as exc:
             logger.exception(
                 "reference_workflow_error",

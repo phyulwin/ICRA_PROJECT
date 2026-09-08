@@ -113,7 +113,7 @@ class FakeRanker:
 
         self.calls = calls
 
-    def rank(self, scene: object, analysis: object, candidates: list, preferences: object, search_plan: object = None) -> list[RankedReference]:
+    def rank(self, scene: object, analysis: object, candidates: list, preferences: object, search_plan: object = None, **kwargs: object) -> list[RankedReference]:
         """Build a deterministic result from the supplied candidate."""
 
         self.calls.append("rank")

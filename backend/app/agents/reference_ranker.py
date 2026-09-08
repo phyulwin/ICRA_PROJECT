@@ -25,6 +25,7 @@ from backend.app.schemas.scene import Scene, SceneAnalysis
 from backend.app.schemas.search_plan import SearchPlan
 from backend.app.services.gemini_client import create_gemini_client
 from backend.app.services.gemini_safety import GEMINI_SAFETY_SETTINGS
+from backend.app.services.cancellation import CancellationToken
 from backend.app.services.reference_quality import DIRECT_ARTIFACT_TYPES
 
 
@@ -243,9 +244,12 @@ similarity, and must use informational_article with artifact=false."""
         candidates: Sequence[CulturalReferenceCandidate],
         preferences: ReferenceSearchPreferences,
         search_plan: SearchPlan | None = None,
+        cancellation_token: CancellationToken | None = None,
     ) -> list[RankedReference]:
         """Return the top real candidates ordered by deterministic final score."""
 
+        token = cancellation_token or CancellationToken()
+        token.raise_if_cancelled()
         evidence_eligible = [
             candidate
             for candidate in candidates
@@ -296,6 +300,7 @@ similarity, and must use informational_article with artifact=false."""
                     temperature=0.0,
                 ),
             )
+            token.raise_if_cancelled()
             batch = (
                 GeminiReferenceAssessmentBatch.model_validate(response.parsed)
                 if response.parsed is not None
@@ -313,6 +318,7 @@ similarity, and must use informational_article with artifact=false."""
         candidates_by_id = {candidate.id: candidate for candidate in reduced_candidates}
         assessments_by_id: dict[str, ReferenceAssessment] = {}
         for wire_assessment in batch.items:
+            token.raise_if_cancelled()
             try:
                 assessment = self._validate_assessment(wire_assessment)
             except ValidationError:

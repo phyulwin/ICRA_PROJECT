@@ -32,6 +32,8 @@ from backend.app.services.agent_engine_service import AgentEngineGateway, AgentE
 from backend.app.services.document_processor import DocumentProcessingError, DocumentProcessor, GeminiDocumentTextExtractor, NativeDocumentExtractionError
 from backend.app.services.multimodal_analyzer import MultimodalAnalysisError, MultimodalAnalyzer
 from backend.app.services.reference_service import ReferenceDiscoveryService
+from backend.app.services.cancellation import CancellationToken, SearchCancelled
+from backend.app.services.cancellation_registry import SearchCancellationRegistry
 from backend.app.services.library_service import LibraryNotFoundError, LibraryService, LibraryServiceError, ReferenceOwnershipError
 from backend.app.services.firestore_service import (
     FirestoreProjectService,
@@ -95,6 +97,7 @@ document_processor = DocumentProcessor(native_pdf_extractor=gemini_document_extr
 script_intelligence_agent = ScriptIntelligenceAgent()
 multimodal_analyzer = MultimodalAnalyzer()
 reference_discovery_service = ReferenceDiscoveryService()
+search_cancellation_registry = SearchCancellationRegistry()
 directing_guidance_agent = DirectingGuidanceAgent()
 agent_engine_gateway = AgentEngineGateway()
 project_persistence = FirestoreProjectService()
@@ -246,22 +249,75 @@ async def analyze_multimodal_reference(scene_json: str = Form(...), media: Uploa
     return MultimodalAnalysisResult(scene_id=scene.scene_id, media_type=media_type, analysis=analysis)
 
 
+# Monitor client connectivity while one long-running retrieval operation executes.
+async def _run_cancellable_search(
+    http_request: Request,
+    operation: object,
+    cancellation_token: CancellationToken,
+    request_id: str | None = None,
+) -> ReferenceSearchResponse:
+    """Cancel the active coroutine and worker checkpoints after client disconnect."""
+
+    task = asyncio.create_task(operation)
+    try:
+        while not task.done():
+            done, _ = await asyncio.wait({task}, timeout=0.1)
+            if done:
+                break
+            if await http_request.is_disconnected():
+                cancellation_token.cancel()
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                raise SearchCancelled("Reference search was cancelled by the client.")
+            if request_id and await run_in_threadpool(
+                search_cancellation_registry.is_cancelled,
+                request_id,
+            ):
+                cancellation_token.cancel()
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                raise SearchCancelled("Reference search was cancelled by the user.")
+        return await task
+    except asyncio.CancelledError:
+        cancellation_token.cancel()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        raise
+
+
 @app.post("/api/v1/scenes/{scene_id}/references", response_model=ReferenceSearchResponse)
-async def find_scene_references(scene_id: str, request: ReferenceSearchRequest) -> ReferenceSearchResponse:
+async def find_scene_references(scene_id: str, payload: ReferenceSearchRequest, http_request: Request) -> ReferenceSearchResponse:
     """Search and rank references through the configured ADK boundary."""
 
-    if scene_id != request.scene.scene_id:
+    if scene_id != payload.scene.scene_id:
         raise HTTPException(status_code=400, detail="The route scene_id does not match the request scene.")
+    cancellation_token = CancellationToken()
+    request_id = http_request.headers.get("x-search-request-id", "").strip()
+    if request_id:
+        await run_in_threadpool(search_cancellation_registry.start, request_id)
     try:
         if agent_engine_gateway.enabled:
-            response = await agent_engine_gateway.find_references(request)
+            operation = agent_engine_gateway.find_references(payload)
         else:
-            response = await run_in_threadpool(reference_discovery_service.find_references, request)
-        if project_persistence.enabled and request.project_id:
+            operation = run_in_threadpool(
+                reference_discovery_service.find_references,
+                payload,
+                cancellation_token,
+            )
+        response = await _run_cancellable_search(
+            http_request,
+            operation,
+            cancellation_token,
+            request_id,
+        )
+        cancellation_token.raise_if_cancelled()
+        if await http_request.is_disconnected():
+            raise SearchCancelled("Reference search was cancelled by the client.")
+        if project_persistence.enabled and payload.project_id:
             persisted = project_persistence.save_search(
-                request.project_id,
+                payload.project_id,
                 scene_id,
-                request.preferences,
+                payload.preferences,
                 response.searched_queries,
                 response.references,
                 response.raw_candidate_count,
@@ -273,6 +329,8 @@ async def find_scene_references(scene_id: str, request: ReferenceSearchRequest) 
             )
             response.search_id = persisted.search_id
         return response
+    except SearchCancelled:
+        raise HTTPException(status_code=499, detail="Search cancelled.")
     except ParallelConfigurationError as exc:
         raise HTTPException(status_code=503, detail="Reference search is not configured.") from exc
     except ParallelSearchError as exc:
@@ -281,6 +339,24 @@ async def find_scene_references(scene_id: str, request: ReferenceSearchRequest) 
         raise HTTPException(status_code=getattr(exc, "status_code", 502), detail="Reference ranking is temporarily unavailable.") from exc
     except (PersistenceUnavailableError, PersistenceDisabledError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    finally:
+        if request_id:
+            await run_in_threadpool(search_cancellation_registry.finish, request_id)
+
+
+# Publish a cross-instance cancellation marker before the browser closes its request.
+@app.post("/api/v1/reference-searches/{request_id}/cancel", status_code=202)
+async def cancel_reference_search(request_id: str) -> dict[str, str]:
+    """Request cooperative cancellation without treating it as an application error."""
+
+    try:
+        from uuid import UUID
+
+        UUID(request_id)
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise HTTPException(status_code=400, detail="The search request ID is invalid.") from exc
+    await run_in_threadpool(search_cancellation_registry.cancel, request_id)
+    return {"status": "cancellation_requested"}
 
 
 @app.get("/api/v1/projects")

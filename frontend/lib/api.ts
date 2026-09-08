@@ -70,13 +70,17 @@ export async function findCulturalReferences(
     sceneAnalysis: SceneAnalysis,
     preferences: ReferenceSearchPreferences,
     signal?: AbortSignal,
+    requestId?: string,
 ): Promise<ReferenceSearchResponse> {
     try {
         const response = await fetch(
             `${API_BASE_URL}/api/v1/scenes/${encodeURIComponent(scene.scene_id)}/references`,
             {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(requestId ? { 'X-Search-Request-ID': requestId } : {}),
+                },
                 body: JSON.stringify({
                     project_id: projectId,
                     scene,
@@ -94,6 +98,18 @@ export async function findCulturalReferences(
             );
         }
         throw error;
+    }
+}
+
+// Notify FastAPI across Cloud Run instances before aborting the local fetch.
+export async function cancelCulturalReferenceSearch(requestId: string): Promise<void> {
+    try {
+        await fetch(`${API_BASE_URL}/api/v1/reference-searches/${encodeURIComponent(requestId)}/cancel`, {
+            method: 'POST',
+            keepalive: true,
+        });
+    } catch {
+        // AbortController and server disconnect monitoring remain fallback safeguards.
     }
 }
 

@@ -16,7 +16,7 @@ class FakeReferenceDiscoveryService:
 
         self.last_request = None
 
-    def find_references(self, request: object) -> ReferenceSearchResponse:
+    def find_references(self, request: object, cancellation_token: object = None) -> ReferenceSearchResponse:
         """Return a schema-valid no-results response for the requested scene."""
 
         self.last_request = request

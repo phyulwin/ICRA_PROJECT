@@ -1,6 +1,7 @@
 # backend/app/services/agent_engine_service.py
 """Production gateway from Cloud Run to the deployed ADK Agent Engine."""
 
+import asyncio
 import os
 from typing import Any
 from uuid import uuid4
@@ -180,6 +181,9 @@ class AgentEngineGateway:
     ) -> dict[str, dict[str, Any]]:
         """Stream one managed request and return tool responses by function name."""
 
+        session_id: str | None = None
+        user_id: str | None = None
+        remote_agent: Any | None = None
         try:
             remote_agent = self._get_remote_agent()
             user_id = f"cloud_run_{uuid4().hex}"
@@ -210,6 +214,17 @@ class AgentEngineGateway:
                     if name and isinstance(response, dict):
                         responses[name] = response
             return responses
+        except asyncio.CancelledError:
+            # Close the managed session when possible; late provider output is discarded.
+            if remote_agent is not None and user_id and session_id:
+                try:
+                    await remote_agent.async_delete_session(
+                        user_id=user_id,
+                        session_id=session_id,
+                    )
+                except Exception:
+                    pass
+            raise
         except AgentEngineInvocationError:
             raise
         except TimeoutError as exc:
