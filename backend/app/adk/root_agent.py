@@ -17,6 +17,7 @@ from backend.app.adk.state import ProjectSessionState
 from backend.app.adk.tools import (
     analyze_multimodal_reference,
     analyze_scene,
+    generate_directing_guidance,
     rank_references,
     search_cultural_references,
 )
@@ -36,13 +37,16 @@ field: scene_id, heading, location, time_of_day, characters, and raw_text. For a
 'no reference needed', do not search unless the user explicitly requests references.
 For possible or strong opportunities, call search_cultural_references once; that tool
 owns one bounded quality retry and must not be called again in the same request. Its
-match_for value must be exactly all, acting, situation, visual, or timing; never put a
+match_for must use a supported creative priority such as best_overall,
+facial_expression, comedic_timing, performance, situation, or camera_framing; never put a
 query in a preference field because the tool reads queries from validated state. Call
 rank_references only after search succeeds; it reads only candidates preserved in session
 state. Clearly report partial success or errors instead of fabricating a completion.
 Use analyze_multimodal_reference only when the user supplies a real image/video URI and
-MIME type. Give filmmaking guidance at an abstract level and do not reproduce protected
-dialogue, frames, or expressive content beyond what is necessary for analysis."""
+MIME type. Call generate_directing_guidance only when a real ranked reference is already
+selected in state; do not rerun search or ranking. Directing guidance must abstract the
+transferable cinematic mechanism and must not reproduce protected dialogue, frames, or
+expressive content beyond what is necessary for analysis."""
 
 
 # Export the conventional root_agent object used by ADK CLI and Agent Engine.
@@ -63,6 +67,7 @@ root_agent = Agent(
         analyze_scene,
         search_cultural_references,
         rank_references,
+        generate_directing_guidance,
         analyze_multimodal_reference,
     ],
     before_agent_callback=before_agent_callback,

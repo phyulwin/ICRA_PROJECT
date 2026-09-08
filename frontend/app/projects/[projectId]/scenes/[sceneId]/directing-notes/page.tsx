@@ -1,8 +1,7 @@
 // frontend/app/projects/[projectId]/scenes/[sceneId]/directing-notes/page.tsx
-import { FutureScenePage } from '@/components/future-scene-page';
+import { DirectingWorkspace } from '@/components/directing-workspace';
 
-// Reserve directing guidance for the post-ranking Phase 3 workflow.
+// Render the real persisted directing workflow for the selected scene.
 export default function DirectingNotesPage() {
-    return <FutureScenePage active="directing" />;
+    return <DirectingWorkspace />;
 }
-

@@ -4,6 +4,7 @@
 from google.adk.tools import ToolContext
 
 from backend.app.agents.culture_search import CulturalSearchAgent
+from backend.app.agents.directing_guidance import DirectingGuidanceAgent
 from backend.app.agents.reference_ranker import ReferenceRanker
 from backend.app.agents.script_analyzer import ScriptIntelligenceAgent
 from backend.app.schemas.reference import (
@@ -15,7 +16,7 @@ from backend.app.schemas.reference import (
 from backend.app.schemas.scene import Scene, SceneAnalysis
 from backend.app.services.multimodal_analyzer import MultimodalAnalyzer
 from backend.app.services.reference_preview import ReferencePreviewResolver
-from backend.app.services.reference_quality import build_artifact_queries
+from backend.app.tools.parallel_search import deduplicate_candidates
 from backend.app.adk.state import (
     SearchHistoryEntry,
     ToolStatus,
@@ -52,6 +53,13 @@ def _multimodal_analyzer() -> MultimodalAnalyzer:
     return MultimodalAnalyzer()
 
 
+# Preserve the established Gemini client, schemas, and safety settings for direction.
+def _directing_agent() -> DirectingGuidanceAgent:
+    """Construct the structured directing-guidance service."""
+
+    return DirectingGuidanceAgent()
+
+
 # Expose Gemini scene analysis as one genuine ADK function tool.
 def analyze_scene(scene: Scene, tool_context: ToolContext) -> dict:
     """Analyze one parsed screenplay scene and return validated scene intelligence."""
@@ -82,8 +90,9 @@ def search_cultural_references(
     tool_context: ToolContext,
     reference_type: ReferenceType = ReferenceType.ALL,
     era: ReferenceEra = ReferenceEra.ANY,
-    match_for: MatchFor = MatchFor.ALL,
-    obscurity: int = 50,
+    match_for: MatchFor = MatchFor.BEST_OVERALL,
+    recognition: int = 50,
+    user_intent: str = "",
     max_results: int = 6,
 ) -> dict:
     """Search real cultural references through Parallel with at most one retry."""
@@ -99,7 +108,8 @@ def search_cultural_references(
                 "reference_type": reference_type,
                 "era": era,
                 "match_for": match_for,
-                "obscurity": obscurity,
+                "recognition": recognition,
+                "user_intent": user_intent,
                 "max_results": max_results,
             }
         )
@@ -107,16 +117,14 @@ def search_cultural_references(
             validated_scene,
             validated_analysis,
             preferences,
+            allow_artifact_retry=False,
         )
-        initial_queries = build_artifact_queries(
-            validated_analysis.reference_queries,
-            preferences.reference_type,
-        )
-        retry_count = int(len(result.searched_queries) > len(initial_queries))
+        retry_count = result.retry_count
         state.scene = validated_scene
         state.scene_analysis = validated_analysis
         state.search_preferences = preferences
         state.search_queries = result.searched_queries
+        state.search_plan = result.search_plan
         state.retry_count = min(retry_count, 1)
         state.raw_reference_candidates = result.candidates
         state.search_history.append(
@@ -145,6 +153,7 @@ def search_cultural_references(
             "rejected_candidate_count": result.rejected_candidate_count,
             "extracted_candidate_count": result.extracted_candidate_count,
             "retry_count": min(retry_count, 1),
+            "search_plan": result.search_plan.model_dump(mode="json") if result.search_plan else None,
             "result_count": len(result.candidates),
         }
     except Exception:
@@ -172,7 +181,27 @@ def rank_references(
             validated_analysis,
             validated_candidates,
             preferences,
+            state.search_plan,
         )
+        # Diagnose and reformulate once only after the first ranked-quality signal.
+        if len(ranked) < 3 and state.retry_count == 0:
+            refined = _search_agent().search(
+                validated_scene,
+                validated_analysis,
+                preferences,
+                attempted_queries=state.search_queries,
+                failure_diagnosis=(
+                    "Fewer than three candidates passed artifact and creative-match "
+                    "thresholds; seek observable behavior rather than topic pages."
+                ),
+                allow_artifact_retry=False,
+            )
+            validated_candidates = deduplicate_candidates([*validated_candidates, *refined.candidates], limit=24)
+            ranked = _reference_ranker().rank(validated_scene, validated_analysis, validated_candidates, preferences, refined.search_plan)
+            state.raw_reference_candidates = validated_candidates
+            state.search_queries = [*state.search_queries, *refined.searched_queries]
+            state.search_plan = refined.search_plan
+            state.retry_count = 1
         enriched = ReferencePreviewResolver().enrich_ranked_references(ranked)
         state.ranked_references = enriched
         state.last_tool_status = ToolStatus(
@@ -184,6 +213,9 @@ def rank_references(
             "ranked_references": [
                 reference.model_dump(mode="json") for reference in enriched
             ],
+            "searched_queries": state.search_queries,
+            "retry_count": state.retry_count,
+            "search_plan": state.search_plan.model_dump(mode="json") if state.search_plan else None,
             "result_count": len(enriched),
         }
     except Exception:
@@ -216,6 +248,36 @@ def analyze_multimodal_reference(
         return {
             "status": "success",
             "analysis": analysis.model_dump(mode="json"),
+            "result_count": 1,
+        }
+    except Exception:
+        raise
+
+
+# Translate the selected real reference without rerunning retrieval or ranking.
+def generate_directing_guidance(tool_context: ToolContext) -> dict:
+    """Generate structured directing guidance from verified session state."""
+
+    try:
+        state = load_project_state(tool_context.state)
+        if state.scene is None or state.scene_analysis is None:
+            raise ValueError("Scene analysis is required before directing guidance.")
+        if state.selected_reference is None:
+            raise ValueError("A ranked reference must be selected before guidance.")
+        guidance = _directing_agent().generate(
+            state.scene,
+            state.scene_analysis,
+            state.selected_reference,
+        )
+        state.directing_guidance = guidance
+        state.last_tool_status = ToolStatus(
+            tool_name="generate_directing_guidance",
+            status="success",
+        )
+        save_project_state(state, tool_context.state)
+        return {
+            "status": "success",
+            "directing_guidance": guidance.model_dump(mode="json"),
             "result_count": 1,
         }
     except Exception:

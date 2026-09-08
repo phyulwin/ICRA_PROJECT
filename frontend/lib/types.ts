@@ -74,9 +74,9 @@ export interface ProjectDetail extends ProjectRecord {
 }
 
 // Mirror backend search controls without exposing the server-side Parallel key.
-export type ReferenceType = 'all' | 'memes' | 'internet' | 'film' | 'anime' | 'tiktok';
-export type ReferenceEra = 'any' | '2000s' | '2010s' | '2020s' | 'current';
-export type MatchFor = 'all' | 'acting' | 'situation' | 'visual' | 'timing';
+export type ReferenceType = 'all' | 'tiktok_short_form' | 'instagram_reels' | 'memes' | 'reaction_gifs' | 'anime' | 'film' | 'tv' | 'internet_culture';
+export type ReferenceEra = 'any' | 'trending_current' | '2020_present' | '2015_2019' | '2010_2014' | '2000s' | 'pre_2000';
+export type MatchFor = 'best_overall' | 'performance' | 'facial_expression' | 'situation' | 'visual_composition' | 'body_language' | 'comedic_timing' | 'emotional_beat' | 'camera_framing';
 export type CulturalReferenceType =
     | 'reaction_meme'
     | 'viral_video'
@@ -102,7 +102,8 @@ export interface ReferenceSearchPreferences {
     reference_type: ReferenceType;
     era: ReferenceEra;
     match_for: MatchFor;
-    obscurity: number;
+    recognition: number;
+    user_intent: string;
     max_results: number;
 }
 
@@ -118,6 +119,8 @@ export interface CulturalReferenceCandidate {
     cultural_reference_type: CulturalReferenceType;
     source_platform: SourcePlatform;
     discovered_from_query: string;
+    discovered_from_queries: string[];
+    search_family: string;
     published_at: string | null;
     source_metadata: Record<string, unknown>;
 }
@@ -126,9 +129,13 @@ export interface ReferenceAssessment {
     candidate_id: string;
     emotional_similarity: number;
     situational_similarity: number;
+    facial_expression_similarity: number;
+    performance_similarity: number;
+    body_language_similarity: number;
     visual_similarity: number;
     acting_similarity: number;
     timing_similarity: number;
+    camera_framing_similarity: number;
     recognizability: number;
     cultural_relevance: number;
     artifact_verified: boolean;
@@ -137,6 +144,25 @@ export interface ReferenceAssessment {
     artifact_evidence: string;
     match_reason: string;
     tags: string[];
+    useful_directing_elements: string[];
+    best_for: string[];
+    recognizability_is_inferred: boolean;
+}
+
+// Mirror Gemini's structured preference-aware retrieval strategy.
+export interface SearchPlan {
+    creative_target: string;
+    comedic_or_dramatic_mechanism: string;
+    desired_visual_action: string;
+    desired_performance: string;
+    desired_emotional_beat: string;
+    desired_reference_types: string[];
+    platform_targets: string[];
+    era_intent: string;
+    ranking_priority: string;
+    queries: string[];
+    negative_intents: string[];
+    reformulation_diagnosis: string | null;
 }
 
 export interface RankedReference {
@@ -163,6 +189,7 @@ export interface ReferenceSearchResponse {
     partial_success: boolean;
     retry_count: number;
     search_id: string | null;
+    search_plan: SearchPlan | null;
 }
 
 export interface SearchRecord {
@@ -178,6 +205,7 @@ export interface SearchRecord {
     status: string;
     failed_queries: SearchQueryFailure[];
     warnings: string[];
+    search_plan: SearchPlan | null;
 }
 
 export interface SearchDetail extends SearchRecord {
@@ -194,4 +222,74 @@ export interface RefinementRecord {
     previous_search_id: string | null;
     resulting_search_id: string | null;
     created_at: string;
+}
+
+// Represent the validated Gemini directing plan returned through FastAPI.
+export interface DirectingGuidance {
+    reference_id: string;
+    reference_title: string;
+    scene_id: string;
+    creative_intent: string;
+    performance: string[];
+    facial_expression: string[];
+    body_language: string[];
+    blocking: string[];
+    camera: string[];
+    framing: string[];
+    shot_sequence: string[];
+    timing: string[];
+    editing: string[];
+    sound: string[];
+    visual_style: string[];
+    what_to_borrow: string[];
+    what_not_to_copy: string[];
+    concise_director_note: string;
+}
+
+// Carry server-owned guidance identity so refresh and board saves remain durable.
+export interface DirectingGuidanceResult {
+    guidance_id: string;
+    project_id: string;
+    search_id: string;
+    scene_id: string;
+    reference_url: string;
+    source_domain: string;
+    guidance: DirectingGuidance;
+}
+
+// Mirror Firestore-backed Library reference records returned by FastAPI.
+export interface SavedReference {
+    id: string;
+    project_id: string;
+    scene_id: string;
+    scene_heading: string;
+    scene_excerpt: string;
+    reference_id: string;
+    reference_title: string;
+    reference_url: string;
+    source_domain: string;
+    provider: string;
+    description: string;
+    overall_score: number;
+    score_breakdown: Record<string, unknown>;
+    match_reason: string;
+    reference_type: string;
+    image_url: string | null;
+    tags: string[];
+    created_at: string;
+    updated_at: string;
+}
+
+// Mirror Firestore-backed directing boards returned by FastAPI.
+export interface SavedDirectingBoard {
+    id: string;
+    project_id: string;
+    scene_id: string;
+    scene_heading: string;
+    selected_reference: RankedReference;
+    directing_guidance: DirectingGuidance;
+    user_title: string;
+    notes: string;
+    created_at: string;
+    updated_at: string;
 }

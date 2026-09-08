@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ValidationError
 
 from backend.app.agents.reference_ranker import ReferenceRankingError
+from backend.app.agents.directing_guidance import DirectingGuidanceAgent, DirectingGuidanceError
 from backend.app.agents.script_analyzer import ScriptAnalysisError, ScriptIntelligenceAgent
 from backend.app.schemas.reference import ReferenceSearchRequest, ReferenceSearchResponse
 from backend.app.schemas.persistence import (
@@ -24,11 +25,14 @@ from backend.app.schemas.persistence import (
     RefinementRequest,
     SelectionUpdate,
 )
+from backend.app.schemas.directing import DirectingGuidanceRequest, DirectingGuidanceResult
+from backend.app.schemas.library import SaveDirectingBoardRequest, SaveReferenceRequest
 from backend.app.schemas.scene import AnalyzedScene, DocumentProcessingResult, MultimodalAnalysisResult, PastedScreenplayRequest, Scene, ScreenplayAnalysisResult
 from backend.app.services.agent_engine_service import AgentEngineGateway, AgentEngineInvocationError
 from backend.app.services.document_processor import DocumentProcessingError, DocumentProcessor, GeminiDocumentTextExtractor, NativeDocumentExtractionError
 from backend.app.services.multimodal_analyzer import MultimodalAnalysisError, MultimodalAnalyzer
 from backend.app.services.reference_service import ReferenceDiscoveryService
+from backend.app.services.library_service import LibraryNotFoundError, LibraryService, LibraryServiceError, ReferenceOwnershipError
 from backend.app.services.firestore_service import (
     FirestoreProjectService,
     PersistenceDisabledError,
@@ -91,8 +95,10 @@ document_processor = DocumentProcessor(native_pdf_extractor=gemini_document_extr
 script_intelligence_agent = ScriptIntelligenceAgent()
 multimodal_analyzer = MultimodalAnalyzer()
 reference_discovery_service = ReferenceDiscoveryService()
+directing_guidance_agent = DirectingGuidanceAgent()
 agent_engine_gateway = AgentEngineGateway()
 project_persistence = FirestoreProjectService()
+library_service = LibraryService()
 
 
 # Define lightweight health contracts that never reveal configuration values.
@@ -263,6 +269,7 @@ async def find_scene_references(scene_id: str, request: ReferenceSearchRequest) 
                 "partial_success" if response.partial_success else "success",
                 [item.model_dump(mode="json") for item in response.failed_queries],
                 response.warnings,
+                response.search_plan,
             )
             response.search_id = persisted.search_id
         return response
@@ -385,4 +392,225 @@ def list_refinements(project_id: str, scene_id: str):
     try:
         return project_persistence.list_refinements(project_id, scene_id)
     except (PersistenceUnavailableError, PersistenceDisabledError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+# Generate guidance only from project-owned scene and ranked-reference records.
+@app.post(
+    "/api/v1/projects/{project_id}/scenes/{scene_id}/directing-guidance",
+    response_model=DirectingGuidanceResult,
+)
+async def generate_directing_guidance(
+    project_id: str,
+    scene_id: str,
+    request: DirectingGuidanceRequest,
+) -> DirectingGuidanceResult:
+    """Generate and persist original directing guidance for a real reference."""
+
+    try:
+        scene, analysis = await run_in_threadpool(
+            library_service.get_scene_context, project_id, scene_id
+        )
+        selected_reference = await run_in_threadpool(
+            library_service.get_ranked_reference,
+            project_id,
+            scene_id,
+            request.search_id,
+            request.reference_id,
+        )
+        log_event(
+            logger,
+            "directing_guidance_start",
+            project_id=project_id,
+            scene_id=scene_id,
+            reference_id=request.reference_id,
+        )
+        if agent_engine_gateway.enabled:
+            guidance = await agent_engine_gateway.generate_directing_guidance(
+                scene,
+                analysis,
+                selected_reference,
+            )
+        else:
+            guidance = await run_in_threadpool(
+                directing_guidance_agent.generate,
+                scene,
+                analysis,
+                selected_reference,
+            )
+        result = await run_in_threadpool(
+            library_service.save_guidance_draft,
+            project_id,
+            request.search_id,
+            scene,
+            selected_reference,
+            guidance,
+        )
+        log_event(
+            logger,
+            "directing_guidance_complete",
+            project_id=project_id,
+            scene_id=scene_id,
+            reference_id=request.reference_id,
+            result_count=1,
+        )
+        return result
+    except LibraryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ReferenceOwnershipError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (DirectingGuidanceError, AgentEngineInvocationError) as exc:
+        raise HTTPException(
+            status_code=getattr(exc, "status_code", 502),
+            detail="Directing guidance is temporarily unavailable.",
+        ) from exc
+    except LibraryServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+# Restore the newest server-persisted guidance after browser refresh.
+@app.get(
+    "/api/v1/projects/{project_id}/scenes/{scene_id}/directing-guidance",
+    response_model=DirectingGuidanceResult,
+)
+async def get_latest_directing_guidance(
+    project_id: str,
+    scene_id: str,
+) -> DirectingGuidanceResult:
+    """Return the latest directing guidance draft for one project scene."""
+
+    try:
+        return await run_in_threadpool(
+            library_service.get_latest_guidance, project_id, scene_id
+        )
+    except LibraryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except LibraryServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+# Save one real ranked reference to the project Library.
+@app.post("/api/v1/projects/{project_id}/library/references")
+async def save_library_reference(project_id: str, request: SaveReferenceRequest):
+    """Persist a deduplicated reference loaded from a server-owned search."""
+
+    try:
+        return await run_in_threadpool(
+            library_service.save_reference, project_id, request
+        )
+    except LibraryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ReferenceOwnershipError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LibraryServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+# List refresh-safe Library references from Firestore.
+@app.get("/api/v1/projects/{project_id}/library/references")
+async def list_library_references(project_id: str):
+    """Return all saved references for one project."""
+
+    try:
+        return await run_in_threadpool(library_service.list_references, project_id)
+    except LibraryServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+# Load one saved reference for detail views and ownership checks.
+@app.get("/api/v1/projects/{project_id}/library/references/{item_id}")
+async def get_library_reference(project_id: str, item_id: str):
+    """Return one project-scoped saved reference."""
+
+    try:
+        return await run_in_threadpool(
+            library_service.get_reference, project_id, item_id
+        )
+    except LibraryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except LibraryServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+# Delete one exact Library reference without affecting its immutable search record.
+@app.delete(
+    "/api/v1/projects/{project_id}/library/references/{item_id}",
+    status_code=204,
+)
+async def delete_library_reference(project_id: str, item_id: str) -> None:
+    """Delete one saved reference from Firestore."""
+
+    try:
+        await run_in_threadpool(
+            library_service.delete_reference, project_id, item_id
+        )
+    except LibraryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except LibraryServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+# Save a directing board only from a persisted server-generated guidance draft.
+@app.post("/api/v1/projects/{project_id}/library/boards")
+async def save_library_board(
+    project_id: str,
+    request: SaveDirectingBoardRequest,
+):
+    """Persist a validated directing board for one project."""
+
+    try:
+        return await run_in_threadpool(
+            library_service.save_directing_board, project_id, request
+        )
+    except LibraryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ReferenceOwnershipError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LibraryServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+# List refresh-safe directing boards from Firestore.
+@app.get("/api/v1/projects/{project_id}/library/boards")
+async def list_library_boards(project_id: str):
+    """Return all directing boards for one project."""
+
+    try:
+        return await run_in_threadpool(
+            library_service.list_directing_boards, project_id
+        )
+    except LibraryServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+# Load one project-owned directing board.
+@app.get("/api/v1/projects/{project_id}/library/boards/{board_id}")
+async def get_library_board(project_id: str, board_id: str):
+    """Return one saved directing board."""
+
+    try:
+        return await run_in_threadpool(
+            library_service.get_directing_board, project_id, board_id
+        )
+    except LibraryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except LibraryServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+# Delete one exact directing board while preserving its source attribution.
+@app.delete(
+    "/api/v1/projects/{project_id}/library/boards/{board_id}",
+    status_code=204,
+)
+async def delete_library_board(project_id: str, board_id: str) -> None:
+    """Delete one saved directing board from Firestore."""
+
+    try:
+        await run_in_threadpool(
+            library_service.delete_directing_board, project_id, board_id
+        )
+    except LibraryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except LibraryServiceError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

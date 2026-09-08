@@ -1,5 +1,7 @@
 # Cultural Reference Director
 
+Implementation details for the persistent Library and structured Directing Notes workflow are documented in [docs/directing_library_implementation.md](docs/directing_library_implementation.md).
+
 ### Turn screenplay moments into a shared visual language.
 
 **Live demo:** [cultural-reference-web-602486879299.us-central1.run.app](https://cultural-reference-web-602486879299.us-central1.run.app)

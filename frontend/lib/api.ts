@@ -8,6 +8,9 @@ import type {
     SearchDetail,
     SearchRecord,
     SceneAnalysis,
+    DirectingGuidanceResult,
+    SavedDirectingBoard,
+    SavedReference,
     ScreenplayAnalysisResult,
     ScreenplayScene,
 } from './types';
@@ -122,7 +125,67 @@ export async function listRefinements(projectId: string, sceneId: string): Promi
     return request<RefinementRecord[]>(`/api/v1/projects/${encodeURIComponent(projectId)}/scenes/${encodeURIComponent(sceneId)}/refinements`);
 }
 
+// Generate guidance from one server-persisted Parallel reference.
+export async function generateDirectingGuidance(projectId: string, sceneId: string, searchId: string, referenceId: string): Promise<DirectingGuidanceResult> {
+    return request<DirectingGuidanceResult>(`/api/v1/projects/${encodeURIComponent(projectId)}/scenes/${encodeURIComponent(sceneId)}/directing-guidance`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ search_id: searchId, reference_id: referenceId }),
+    });
+}
+
+// Restore the latest persisted directing draft after navigation or refresh.
+export async function getLatestDirectingGuidance(projectId: string, sceneId: string): Promise<DirectingGuidanceResult> {
+    return request<DirectingGuidanceResult>(`/api/v1/projects/${encodeURIComponent(projectId)}/scenes/${encodeURIComponent(sceneId)}/directing-guidance`);
+}
+
+// Save a real ranked reference through FastAPI; Firestore is never exposed to the browser.
+export async function saveLibraryReference(projectId: string, sceneId: string, searchId: string, referenceId: string): Promise<SavedReference> {
+    return request<SavedReference>(`/api/v1/projects/${encodeURIComponent(projectId)}/library/references`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scene_id: sceneId, search_id: searchId, reference_id: referenceId }),
+    });
+}
+
+// List durable references for one project.
+export async function listLibraryReferences(projectId: string): Promise<SavedReference[]> {
+    return request<SavedReference[]>(`/api/v1/projects/${encodeURIComponent(projectId)}/library/references`);
+}
+
+// Delete one exact durable reference.
+export async function deleteLibraryReference(projectId: string, itemId: string): Promise<void> {
+    await requestWithoutBody(`/api/v1/projects/${encodeURIComponent(projectId)}/library/references/${encodeURIComponent(itemId)}`, { method: 'DELETE' });
+}
+
+// Save a board from a server-generated guidance draft.
+export async function saveDirectingBoard(projectId: string, sceneId: string, guidanceId: string, userTitle: string, notes: string): Promise<SavedDirectingBoard> {
+    return request<SavedDirectingBoard>(`/api/v1/projects/${encodeURIComponent(projectId)}/library/boards`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scene_id: sceneId, guidance_id: guidanceId, user_title: userTitle, notes }),
+    });
+}
+
+// List durable directing boards for one project.
+export async function listDirectingBoards(projectId: string): Promise<SavedDirectingBoard[]> {
+    return request<SavedDirectingBoard[]>(`/api/v1/projects/${encodeURIComponent(projectId)}/library/boards`);
+}
+
+// Delete one exact durable directing board.
+export async function deleteDirectingBoard(projectId: string, boardId: string): Promise<void> {
+    await requestWithoutBody(`/api/v1/projects/${encodeURIComponent(projectId)}/library/boards/${encodeURIComponent(boardId)}`, { method: 'DELETE' });
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const response = await fetch(`${API_BASE_URL}${path}`, init);
     return parseResponse<T>(response);
+}
+
+// Handle successful 204 responses without attempting to parse an empty JSON body.
+async function requestWithoutBody(path: string, init?: RequestInit): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}${path}`, init);
+    if (!response.ok) {
+        await parseResponse<never>(response);
+    }
 }

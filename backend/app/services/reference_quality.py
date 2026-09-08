@@ -22,18 +22,21 @@ SOURCE_TARGETS: dict[ReferenceType, tuple[str, ...]] = {
         "tenor.com",
     ),
     ReferenceType.MEMES: ("giphy.com", "tenor.com", "knowyourmeme.com"),
-    ReferenceType.INTERNET: (
+    ReferenceType.REACTION_GIFS: ("giphy.com", "tenor.com"),
+    ReferenceType.INTERNET_CULTURE: (
         "tiktok.com",
         "instagram.com/reel",
         "youtube.com/shorts",
         "reddit.com",
     ),
-    ReferenceType.TIKTOK: (
+    ReferenceType.TIKTOK_SHORT_FORM: (
         "tiktok.com",
         "instagram.com/reel",
         "youtube.com/shorts",
     ),
     ReferenceType.FILM: ("youtube.com", "getyarn.io"),
+    ReferenceType.TV: ("youtube.com", "getyarn.io"),
+    ReferenceType.INSTAGRAM_REELS: ("instagram.com/reel",),
     ReferenceType.ANIME: ("youtube.com", "reddit.com"),
     ReferenceType.UNCLASSIFIED: ("giphy.com", "youtube.com/shorts"),
 }

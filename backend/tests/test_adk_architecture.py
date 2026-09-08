@@ -21,6 +21,7 @@ from backend.app.schemas.reference import (
     SourcePlatform,
 )
 from backend.app.schemas.scene import SceneAnalysis
+from backend.app.schemas.search_plan import SearchPlan
 
 
 # Build one complete production-shaped request for orchestration tests.
@@ -92,7 +93,7 @@ class FakeSearchAgent:
 
         self.calls = calls
 
-    def search(self, scene: object, analysis: object, preferences: object) -> CulturalSearchResult:
+    def search(self, scene: object, analysis: object, preferences: object, **kwargs: object) -> CulturalSearchResult:
         """Simulate a successful Parallel round."""
 
         self.calls.append("search")
@@ -112,7 +113,7 @@ class FakeRanker:
 
         self.calls = calls
 
-    def rank(self, scene: object, analysis: object, candidates: list, preferences: object) -> list[RankedReference]:
+    def rank(self, scene: object, analysis: object, candidates: list, preferences: object, search_plan: object = None) -> list[RankedReference]:
         """Build a deterministic result from the supplied candidate."""
 
         self.calls.append("rank")
@@ -204,6 +205,17 @@ class FakeReformulationClient:
         )
 
 
+# Supply deterministic v2 plans while keeping retrieval tests network-free.
+class FakeSearchPlanner:
+    """Return diverse initial and diagnosed fallback plans."""
+
+    def plan(self, scene: object, analysis: object, preferences: object, attempted_queries: list[str] | None = None, failure_diagnosis: str | None = None) -> SearchPlan:
+        """Build a complete SearchPlan for the requested round."""
+
+        suffix = "refined" if attempted_queries else "initial"
+        return SearchPlan(creative_target="visible caught-lie reaction", comedic_or_dramatic_mechanism="delayed realization", desired_visual_action="smile freezes", desired_performance="confidence collapses", desired_emotional_beat="embarrassment", desired_reference_types=["reaction meme"], platform_targets=["Tenor"], era_intent="any", ranking_priority="best overall", queries=[f"{suffix} caught lying reaction meme", f"{suffix} guilty face reaction gif", f"{suffix} awkward realization viral clip", f"{suffix} frozen smile comedy moment", f"{suffix} embarrassed performance reaction", f"{suffix} everyone knows silent stare"], negative_intents=["articles", "advice", "tutorials"], reformulation_diagnosis=failure_diagnosis)
+
+
 # Verify the conventional ADK entrypoint exposes genuine callable tools.
 def test_root_agent_registers_real_function_tools() -> None:
     """Register each established capability on the root ADK agent."""
@@ -213,6 +225,7 @@ def test_root_agent_registers_real_function_tools() -> None:
         "analyze_scene",
         "search_cultural_references",
         "rank_references",
+        "generate_directing_guidance",
         "analyze_multimodal_reference",
     ]
 
@@ -253,7 +266,7 @@ def test_orchestrator_sequences_search_then_rank_and_preserves_source() -> None:
 
     response = orchestrator.find_references(build_request())
 
-    assert calls == ["search", "rank"]
+    assert calls == ["search", "rank", "search", "rank"]
     assert response.references[0].reference.source_metadata == {
         "provider": "parallel",
         "session_id": "session_123",
@@ -286,6 +299,7 @@ def test_cultural_search_retries_exactly_once() -> None:
     agent = CulturalSearchAgent(
         parallel_search=provider,
         gemini_client=FakeReformulationClient(),
+        search_planner=FakeSearchPlanner(),
     )
     request = build_request()
 

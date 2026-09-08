@@ -3,11 +3,10 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import {
     ArrowLeft,
     ArrowUpRight,
-    Check,
     Clapperboard,
     ImageOff,
     LoaderCircle,
@@ -19,7 +18,7 @@ import { OpportunityBadge } from './opportunity-badge';
 import { ProjectLoading, ProjectNotFound } from './project-state';
 import { SceneSidebar } from './scene-sidebar';
 import { SceneTabs } from './scene-tabs';
-import { findCulturalReferences, getSearch, listRefinements, listSearches, updateSelection } from '@/lib/api';
+import { findCulturalReferences, generateDirectingGuidance, getSearch, listLibraryReferences, listRefinements, listSearches, saveLibraryReference, updateSelection } from '@/lib/api';
 import type {
     CulturalReferenceType,
     MatchFor,
@@ -34,21 +33,26 @@ import type {
 } from '@/lib/types';
 import { useProject } from '@/lib/use-project';
 
-type SearchStatus = 'idle' | 'searching' | 'evaluating' | 'ranking' | 'success' | 'error';
+type SearchStatus = 'idle' | 'searching' | 'success' | 'error';
 
 const DEFAULT_PREFERENCES: ReferenceSearchPreferences = {
     reference_type: 'all',
     era: 'any',
-    match_for: 'all',
-    obscurity: 50,
+    match_for: 'best_overall',
+    recognition: 50,
+    user_intent: '',
     max_results: 6,
 };
 
 const SCORE_ROWS: Array<[keyof RankedReference['assessment'], string]> = [
     ['visual_similarity', 'Visual / action'],
+    ['facial_expression_similarity', 'Facial expression'],
+    ['performance_similarity', 'Performance'],
+    ['body_language_similarity', 'Body language'],
     ['situational_similarity', 'Situation'],
     ['acting_similarity', 'Performance / body language'],
     ['timing_similarity', 'Comedic timing'],
+    ['camera_framing_similarity', 'Camera / framing'],
     ['emotional_similarity', 'Emotion'],
     ['recognizability', 'Internet recognizability'],
 ];
@@ -81,6 +85,7 @@ const TYPE_LABELS: Record<CulturalReferenceType, string> = {
 // Activate the Phase 3 scene workspace without exposing external-service credentials.
 export function ReferenceWorkspace() {
     const { projectId, sceneId } = useParams<{ projectId: string; sceneId: string }>();
+    const router = useRouter();
     const { snapshot, loading } = useProject(projectId);
     const [preferences, setPreferences] = useState(DEFAULT_PREFERENCES);
     const [status, setStatus] = useState<SearchStatus>('idle');
@@ -90,6 +95,9 @@ export function ReferenceWorkspace() {
     const [refinements, setRefinements] = useState<RefinementRecord[]>([]);
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [savedReferenceIds, setSavedReferenceIds] = useState<Set<string>>(new Set());
+    const [savingReferenceId, setSavingReferenceId] = useState<string | null>(null);
+    const [directingReferenceId, setDirectingReferenceId] = useState<string | null>(null);
     const requestController = useRef<AbortController | null>(null);
 
     const item = useMemo(
@@ -126,6 +134,7 @@ export function ReferenceWorkspace() {
                     partial_success: detail.status === 'partial_success',
                     retry_count: detail.retry_count,
                     search_id: detail.search_id,
+                    search_plan: detail.search_plan,
                 });
                 setSelectedId(detail.chosen_reference_id ?? detail.references[0]?.reference.id ?? null);
                 setStatus('success');
@@ -137,6 +146,13 @@ export function ReferenceWorkspace() {
     // Cancel any in-flight fetch if the user leaves the scene route.
     useEffect(() => () => requestController.current?.abort(), []);
 
+    // Restore saved-state badges from the backend Library after a browser refresh.
+    useEffect(() => {
+        void listLibraryReferences(projectId)
+            .then((items) => setSavedReferenceIds(new Set(items.map((entry) => entry.reference_id))))
+            .catch(() => undefined);
+    }, [projectId]);
+
     // Call FastAPI once and present honest progressive stages while the pipeline runs.
     async function runSearch() {
         if (!item || item.analysis.reference_queries.length === 0) return;
@@ -147,8 +163,6 @@ export function ReferenceWorkspace() {
         setError(null);
         setSelectedId(null);
         setStatus('searching');
-        const evaluatingTimer = window.setTimeout(() => setStatus('evaluating'), 900);
-        const rankingTimer = window.setTimeout(() => setStatus('ranking'), 2200);
 
         try {
             const response = await findCulturalReferences(
@@ -172,8 +186,7 @@ export function ReferenceWorkspace() {
             );
             setStatus('error');
         } finally {
-            window.clearTimeout(evaluatingTimer);
-            window.clearTimeout(rankingTimer);
+            requestController.current = null;
         }
     }
 
@@ -184,6 +197,44 @@ export function ReferenceWorkspace() {
             setSelectedId(referenceId);
         } catch (reason) {
             setError(reason instanceof Error ? reason.message : 'Selection could not be saved.');
+        }
+    }
+
+    // Persist the reference through FastAPI so Firestore remains the source of truth.
+    async function saveReference(referenceId: string) {
+        if (!selectedSearchId) {
+            setError('Run or restore a persisted search before saving this reference.');
+            return;
+        }
+        setSavingReferenceId(referenceId);
+        setError(null);
+        try {
+            await saveLibraryReference(projectId, sceneId, selectedSearchId, referenceId);
+            setSavedReferenceIds((current) => new Set(current).add(referenceId));
+        } catch (reason) {
+            setError(reason instanceof Error ? reason.message : 'Reference could not be saved.');
+        } finally {
+            setSavingReferenceId(null);
+        }
+    }
+
+    // Select a real reference, generate structured guidance, and open Directing Notes.
+    async function useForDirecting(referenceId: string) {
+        if (!selectedSearchId) {
+            setError('Run or restore a persisted search before generating guidance.');
+            return;
+        }
+        setDirectingReferenceId(referenceId);
+        setError(null);
+        try {
+            await updateSelection(projectId, sceneId, selectedSearchId, referenceId);
+            setSelectedId(referenceId);
+            await generateDirectingGuidance(projectId, sceneId, selectedSearchId, referenceId);
+            router.push(`/projects/${projectId}/scenes/${sceneId}/directing-notes`);
+        } catch (reason) {
+            setError(reason instanceof Error ? reason.message : 'Directing guidance could not be generated.');
+        } finally {
+            setDirectingReferenceId(null);
         }
     }
 
@@ -203,6 +254,7 @@ export function ReferenceWorkspace() {
                 partial_success: detail.status === 'partial_success',
                 retry_count: detail.retry_count,
                 search_id: detail.search_id,
+                search_plan: detail.search_plan,
             });
             setSelectedId(detail.chosen_reference_id ?? detail.references[0]?.reference.id ?? null);
             setStatus('success');
@@ -214,7 +266,7 @@ export function ReferenceWorkspace() {
     if (loading) return <AppShell><ProjectLoading /></AppShell>;
     if (!snapshot || !item) return <AppShell><ProjectNotFound /></AppShell>;
 
-    const isSearching = ['searching', 'evaluating', 'ranking'].includes(status);
+    const isSearching = status === 'searching';
     const canSearch = item.analysis.reference_queries.length > 0 && !isSearching;
 
     return (
@@ -235,11 +287,12 @@ export function ReferenceWorkspace() {
 
                         <section className="mt-7 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
                             <div className="flex items-center gap-2"><SlidersHorizontal size={18} className="text-violet-600" /><h2 className="font-bold text-slate-950">Search preferences</h2></div>
+                            <label className="mt-5 block text-xs font-semibold text-slate-600">What kind of reference are you looking for?<textarea value={preferences.user_intent} onChange={(event) => setPreferences({ ...preferences, user_intent: event.target.value })} maxLength={500} rows={3} placeholder="An exaggerated anime reaction where someone realizes they got caught lying" className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-normal leading-6 outline-none focus:border-violet-400" /></label>
                             <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-                                <SelectControl label="Reference type" value={preferences.reference_type} onChange={(value) => setPreferences({ ...preferences, reference_type: value as ReferenceType })} options={[['all', 'All'], ['memes', 'Memes'], ['internet', 'Internet'], ['film', 'Film / TV'], ['anime', 'Anime'], ['tiktok', 'TikTok']]} />
-                                <SelectControl label="Era" value={preferences.era} onChange={(value) => setPreferences({ ...preferences, era: value as ReferenceEra })} options={[['any', 'Any'], ['2000s', '2000s'], ['2010s', '2010s'], ['2020s', '2020s'], ['current', 'Current']]} />
-                                <SelectControl label="Match for" value={preferences.match_for} onChange={(value) => setPreferences({ ...preferences, match_for: value as MatchFor })} options={[['all', 'All'], ['acting', 'Acting'], ['situation', 'Situation'], ['visual', 'Visual'], ['timing', 'Timing']]} />
-                                <label className="text-xs font-semibold text-slate-600">Obscurity · {preferences.obscurity}<input className="mt-3 w-full accent-violet-700" type="range" min="0" max="100" value={preferences.obscurity} onChange={(event) => setPreferences({ ...preferences, obscurity: Number(event.target.value) })} /><span className="mt-1 flex justify-between text-[10px] font-medium text-slate-400"><span>Mainstream</span><span>Niche</span></span></label>
+                                <SelectControl label="Reference type" value={preferences.reference_type} onChange={(value) => setPreferences({ ...preferences, reference_type: value as ReferenceType })} options={[['all', 'All'], ['tiktok_short_form', 'TikTok / Short-form'], ['instagram_reels', 'Instagram / Reels'], ['memes', 'Memes'], ['reaction_gifs', 'Reaction GIFs'], ['anime', 'Anime'], ['film', 'Film'], ['tv', 'TV'], ['internet_culture', 'Internet Culture']]} />
+                                <SelectControl label="Era" value={preferences.era} onChange={(value) => setPreferences({ ...preferences, era: value as ReferenceEra })} options={[['any', 'Any'], ['trending_current', 'Trending / Current'], ['2020_present', '2020–Present'], ['2015_2019', '2015–2019'], ['2010_2014', '2010–2014'], ['2000s', '2000s'], ['pre_2000', 'Pre-2000']]} />
+                                <SelectControl label="Match priority" value={preferences.match_for} onChange={(value) => setPreferences({ ...preferences, match_for: value as MatchFor })} options={[['best_overall', 'Best Overall'], ['performance', 'Performance / Acting'], ['facial_expression', 'Facial Expression'], ['situation', 'Situation'], ['visual_composition', 'Visual Composition'], ['body_language', 'Body Language'], ['comedic_timing', 'Comedic Timing'], ['emotional_beat', 'Emotional Beat'], ['camera_framing', 'Camera / Framing']]} />
+                                <label className="text-xs font-semibold text-slate-600">Recognition · {preferences.recognition}<input className="mt-3 w-full accent-violet-700" type="range" min="0" max="100" value={preferences.recognition} onChange={(event) => setPreferences({ ...preferences, recognition: Number(event.target.value) })} /><span className="mt-1 flex justify-between text-[10px] font-medium text-slate-400"><span>Niche</span><span>Iconic</span></span></label>
                                 <SelectControl label="Results" value={String(preferences.max_results)} onChange={(value) => setPreferences({ ...preferences, max_results: Number(value) })} options={[["3", "Top 3"], ["4", "Top 4"], ["5", "Top 5"], ["6", "Top 6"]]} />
                             </div>
                             <button type="button" onClick={runSearch} disabled={!canSearch} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-violet-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-violet-800 disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-auto">
@@ -254,8 +307,8 @@ export function ReferenceWorkspace() {
 
                         {isSearching && <SearchProgress status={status} />}
                         {error && <section className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-5"><p className="font-semibold text-rose-900">Reference search failed</p><p className="mt-2 text-sm text-rose-700">{error}</p></section>}
-                        {status === 'success' && result && <ReferenceResults result={result} selectedId={selectedId} onSelect={setSelectedId} onChoose={chooseReference} />}
-                        {selected && <ReferenceDetail reference={selected} sceneText={item.scene.raw_text} projectId={projectId} sceneId={sceneId} />}
+                        {status === 'success' && result && <ReferenceResults result={result} selectedId={selectedId} onSelect={setSelectedId} onChoose={chooseReference} onSave={saveReference} onDirect={useForDirecting} savedReferenceIds={savedReferenceIds} savingReferenceId={savingReferenceId} directingReferenceId={directingReferenceId} />}
+                        {selected && <ReferenceDetail reference={selected} sceneText={item.scene.raw_text} onSave={saveReference} onDirect={useForDirecting} saved={savedReferenceIds.has(selected.reference.id)} saving={savingReferenceId === selected.reference.id} directing={directingReferenceId === selected.reference.id} />}
                     </div>
                 </section>
             </div>
@@ -270,23 +323,22 @@ function SelectControl({ label, value, onChange, options }: { label: string; val
 }
 
 
-// Show the three required backend stages without displaying fabricated interim data.
+// Show the real backend sequence without claiming unobservable stage completion.
 function SearchProgress({ status }: { status: SearchStatus }) {
-    const stages: Array<[SearchStatus, string]> = [['searching', 'Searching the web'], ['evaluating', 'Evaluating references'], ['ranking', 'Ranking matches']];
-    const currentIndex = stages.findIndex(([stage]) => stage === status);
-    return <section className="mt-6 rounded-2xl border border-violet-100 bg-violet-50 p-6"><h2 className="font-bold text-violet-950">Finding cultural references</h2><div className="mt-5 grid gap-3 sm:grid-cols-3">{stages.map(([stage, label], index) => <div key={stage} className="flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm">{index < currentIndex ? <Check size={16} className="text-emerald-600" /> : index === currentIndex ? <LoaderCircle size={16} className="animate-spin text-violet-600" /> : <span className="size-4 rounded-full border border-slate-300" />}{label}</div>)}</div></section>;
+    const stages = ['Understanding creative intent', 'Building search strategy', 'Searching cultural sources', 'Filtering weak references', 'Evaluating visual and performance similarity', 'Ranking best matches'];
+    return <section className="mt-6 rounded-2xl border border-violet-100 bg-violet-50 p-6"><h2 className="flex items-center gap-2 font-bold text-violet-950"><LoaderCircle size={16} className="animate-spin" /> Retrieval pipeline running</h2><p className="mt-2 text-xs text-violet-700">These stages execute on the backend; queued labels do not claim individual completion.</p><div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{stages.map((label) => <div key={label} className="rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm">{label}</div>)}</div><span className="sr-only">{status}</span></section>;
 }
 
 
 // Present ranked references while retaining a direct source link on every card.
-function ReferenceResults({ result, selectedId, onSelect, onChoose }: { result: ReferenceSearchResponse; selectedId: string | null; onSelect: (id: string) => void; onChoose: (id: string | null) => void }) {
+function ReferenceResults({ result, selectedId, onSelect, onChoose, onSave, onDirect, savedReferenceIds, savingReferenceId, directingReferenceId }: { result: ReferenceSearchResponse; selectedId: string | null; onSelect: (id: string) => void; onChoose: (id: string | null) => void; onSave: (id: string) => void; onDirect: (id: string) => void; savedReferenceIds: Set<string>; savingReferenceId: string | null; directingReferenceId: string | null }) {
     if (result.references.length === 0) return <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm"><ImageOff size={28} className="mx-auto text-slate-400" /><h2 className="mt-3 font-bold text-slate-950">No traceable references found</h2><p className="mt-2 text-sm text-slate-500">Adjust the filters or try a broader reference type.</p></section>;
-    return <section className="mt-6"><div className="flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-xl font-bold text-slate-950">Ranked references</h2><p className="mt-1 text-sm text-slate-500">{result.references.length} verified artifacts shown from {result.raw_candidate_count} Parallel candidates; {result.rejected_candidate_count ?? 0} not promoted through the quality gates.</p></div>{result.partial_success && <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">Partial search success</span>}</div><div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{result.references.map((ranked) => <ReferenceCard key={ranked.reference.id} ranked={ranked} selected={ranked.reference.id === selectedId} onSelect={() => onSelect(ranked.reference.id)} onChoose={() => onChoose(ranked.reference.id)} onClear={() => onChoose(null)} />)}</div></section>;
+    return <section className="mt-6">{result.search_plan && <details className="mb-5 rounded-xl border border-violet-100 bg-violet-50 p-4"><summary className="cursor-pointer text-sm font-bold text-violet-950">Search strategy</summary><p className="mt-3 text-sm text-violet-900">{result.search_plan.creative_target}</p><p className="mt-2 text-xs text-violet-700">{result.search_plan.queries.length} diverse queries · {result.search_plan.platform_targets.join(', ') || 'cross-platform'} · excludes {result.search_plan.negative_intents.join(', ')}</p></details>}<div className="flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-xl font-bold text-slate-950">Ranked references</h2><p className="mt-1 text-sm text-slate-500">{result.references.length} verified artifacts shown from {result.raw_candidate_count} Parallel candidates; {result.rejected_candidate_count ?? 0} not promoted through the quality gates.</p></div>{result.partial_success && <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">Partial search success</span>}</div><div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{result.references.map((ranked) => <ReferenceCard key={ranked.reference.id} ranked={ranked} selected={ranked.reference.id === selectedId} onSelect={() => onSelect(ranked.reference.id)} onChoose={() => onChoose(ranked.reference.id)} onClear={() => onChoose(null)} onSave={() => onSave(ranked.reference.id)} onDirect={() => onDirect(ranked.reference.id)} saved={savedReferenceIds.has(ranked.reference.id)} saving={savingReferenceId === ranked.reference.id} directing={directingReferenceId === ranked.reference.id} />)}</div></section>;
 }
 
 
 // Render provider facts and use a neutral placeholder when Parallel has no image.
-function ReferenceCard({ ranked, selected, onSelect, onChoose, onClear }: { ranked: RankedReference; selected: boolean; onSelect: () => void; onChoose: () => void; onClear: () => void }) {
+function ReferenceCard({ ranked, selected, onSelect, onChoose, onClear, onSave, onDirect, saved, saving, directing }: { ranked: RankedReference; selected: boolean; onSelect: () => void; onChoose: () => void; onClear: () => void; onSave: () => void; onDirect: () => void; saved: boolean; saving: boolean; directing: boolean }) {
     const { reference, assessment, overall_score: score } = ranked;
     const platform = PLATFORM_LABELS[reference.source_platform ?? 'web'];
     const artifactType = TYPE_LABELS[assessment.cultural_reference_type ?? 'other'];
@@ -296,15 +348,15 @@ function ReferenceCard({ ranked, selected, onSelect, onChoose, onClear }: { rank
             // eslint-disable-next-line @next/next/no-img-element
             <img src={reference.image_url} alt={`Preview for ${reference.title}`} className="h-36 w-full object-cover" />
         ) : <div className="grid h-36 place-items-center bg-gradient-to-br from-slate-100 to-violet-50 text-slate-400"><ImageOff size={30} /><span className="sr-only">No source image available</span></div>}
-        <div className="p-5"><div className="flex items-start justify-between gap-3"><div className="flex flex-wrap gap-1.5"><span className="rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-bold text-white">{platform}</span><span className="rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700">{artifactType}</span></div><span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-bold text-violet-800">{score}%</span></div><h3 className="mt-2 line-clamp-2 font-bold leading-6 text-slate-950">{reference.title}</h3><p className="mt-2 line-clamp-3 text-sm leading-6 text-slate-600">{reference.snippet || 'Parallel returned no excerpt for this source.'}</p><p className="mt-3 text-xs font-semibold text-slate-700">Why the performance matches</p><p className="mt-1 text-xs leading-5 text-slate-500">{assessment.match_reason}</p><div className="mt-4 flex items-center justify-between gap-3"><button type="button" onClick={onSelect} className="text-xs font-bold text-violet-700 hover:text-violet-900">View match details</button><button type="button" onClick={selected ? onClear : onChoose} className="text-xs font-bold text-violet-700 hover:text-violet-900">{selected ? 'Clear selection' : 'Select reference'}</button><a href={reference.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-violet-700">Actual source <ArrowUpRight size={13} /></a></div></div>
+        <div className="p-5"><div className="flex items-start justify-between gap-3"><div className="flex flex-wrap gap-1.5"><span className="rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-bold text-white">{platform}</span><span className="rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700">{artifactType}</span></div><span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-bold text-violet-800">MATCH {score}%</span></div><h3 className="mt-2 line-clamp-2 font-bold leading-6 text-slate-950">{reference.title}</h3><p className="mt-2 line-clamp-3 text-sm leading-6 text-slate-600">{reference.snippet || 'Parallel returned no excerpt for this source.'}</p><p className="mt-3 text-xs font-semibold text-slate-700">Best for: {assessment.best_for.join(' + ')}</p><p className="mt-3 text-xs font-semibold text-slate-700">Why it matches</p><p className="mt-1 text-xs leading-5 text-slate-500">{assessment.match_reason}</p>{assessment.useful_directing_elements.length > 0 && <ul className="mt-3 list-disc pl-4 text-xs leading-5 text-slate-500">{assessment.useful_directing_elements.map((element) => <li key={element}>{element}</li>)}</ul>}<p className="mt-2 text-[10px] text-slate-400">Recognition is an inferred ranking signal.</p><div className="mt-4 flex items-center justify-between gap-3"><button type="button" onClick={onSelect} className="text-xs font-bold text-violet-700 hover:text-violet-900">View details</button><a href={reference.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-violet-700">Source <ArrowUpRight size={13} /></a></div><div className="mt-4 grid grid-cols-2 gap-2"><button type="button" onClick={onSave} disabled={saved || saving} className="rounded-lg border border-violet-200 px-3 py-2 text-xs font-bold text-violet-700 disabled:bg-violet-50">{saving ? 'Saving...' : saved ? 'Saved' : 'Save to Library'}</button><button type="button" onClick={onDirect} disabled={directing} className="rounded-lg bg-violet-700 px-3 py-2 text-xs font-bold text-white disabled:bg-slate-300">{directing ? 'Generating...' : 'Use for Directing'}</button></div><button type="button" onClick={selected ? onClear : onChoose} className="mt-3 text-xs font-bold text-violet-700 hover:text-violet-900">{selected ? 'Clear selection' : 'Select reference'}</button></div>
     </article>;
 }
 
 
 // Show assessment components beside immutable source and original scene context.
-function ReferenceDetail({ reference: ranked, sceneText, projectId, sceneId }: { reference: RankedReference; sceneText: string; projectId: string; sceneId: string }) {
+function ReferenceDetail({ reference: ranked, sceneText, onSave, onDirect, saved, saving, directing }: { reference: RankedReference; sceneText: string; onSave: (id: string) => void; onDirect: (id: string) => void; saved: boolean; saving: boolean; directing: boolean }) {
     const { reference, assessment } = ranked;
-    return <section className="mt-7 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.12em] text-violet-700">Reference detail</p><h2 className="mt-2 text-xl font-bold text-slate-950">{reference.title}</h2><a href={reference.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-violet-700 hover:text-violet-900">{reference.source_domain} <ArrowUpRight size={14} /></a></div><span className="text-3xl font-bold text-violet-800">{ranked.overall_score}%</span></div><div className="mt-6 grid gap-6 lg:grid-cols-2"><div><h3 className="text-sm font-bold text-slate-950">Score breakdown</h3><div className="mt-4 space-y-3">{SCORE_ROWS.map(([key, label]) => <ScoreRow key={key} label={label} value={assessment[key] as number} />)}</div></div><div><h3 className="text-sm font-bold text-slate-950">Why the performance matches</h3><p className="mt-3 text-sm leading-6 text-slate-600">{assessment.match_reason}</p><h3 className="mt-5 text-sm font-bold text-slate-950">Artifact evidence</h3><p className="mt-2 text-sm leading-6 text-slate-600">{assessment.artifact_evidence}</p><div className="mt-4 flex flex-wrap gap-2">{assessment.tags.map((tag) => <span key={tag} className="rounded-md bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700">{tag}</span>)}</div></div></div><div className="mt-6"><div className="flex items-center gap-2"><Clapperboard size={16} className="text-violet-600" /><h3 className="text-sm font-bold text-slate-950">Original scene context</h3></div><pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap rounded-xl bg-slate-950 p-5 font-mono text-xs leading-6 text-slate-200">{sceneText}</pre></div><Link href={`/projects/${projectId}/scenes/${sceneId}/directing-notes`} className="mt-6 inline-flex rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800">Continue to Directing Guidance</Link></section>;
+    return <section className="mt-7 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.12em] text-violet-700">Reference detail</p><h2 className="mt-2 text-xl font-bold text-slate-950">{reference.title}</h2><a href={reference.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-violet-700 hover:text-violet-900">{reference.source_domain} <ArrowUpRight size={14} /></a></div><span className="text-3xl font-bold text-violet-800">{ranked.overall_score}%</span></div><div className="mt-6 grid gap-6 lg:grid-cols-2"><div><h3 className="text-sm font-bold text-slate-950">Score breakdown</h3><div className="mt-4 space-y-3">{SCORE_ROWS.map(([key, label]) => <ScoreRow key={key} label={label} value={assessment[key] as number} />)}</div></div><div><h3 className="text-sm font-bold text-slate-950">Why the performance matches</h3><p className="mt-3 text-sm leading-6 text-slate-600">{assessment.match_reason}</p><h3 className="mt-5 text-sm font-bold text-slate-950">Artifact evidence</h3><p className="mt-2 text-sm leading-6 text-slate-600">{assessment.artifact_evidence}</p><div className="mt-4 flex flex-wrap gap-2">{assessment.tags.map((tag) => <span key={tag} className="rounded-md bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700">{tag}</span>)}</div></div></div><div className="mt-6"><div className="flex items-center gap-2"><Clapperboard size={16} className="text-violet-600" /><h3 className="text-sm font-bold text-slate-950">Original scene context</h3></div><pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap rounded-xl bg-slate-950 p-5 font-mono text-xs leading-6 text-slate-200">{sceneText}</pre></div><div className="mt-6 flex flex-wrap gap-3"><button type="button" onClick={() => onSave(reference.id)} disabled={saved || saving} className="rounded-lg border border-violet-200 px-4 py-2.5 text-sm font-semibold text-violet-700 disabled:bg-violet-50">{saving ? 'Saving...' : saved ? 'Saved to Library' : 'Save to Library'}</button><button type="button" onClick={() => onDirect(reference.id)} disabled={directing} className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white disabled:bg-slate-300">{directing ? 'Generating guidance...' : 'Use for Directing'}</button></div></section>;
 }
 
 

@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import BaseModel, Field, HttpUrl, model_validator
 
 from backend.app.schemas.scene import Scene, SceneAnalysis
+from backend.app.schemas.search_plan import SearchPlan
 
 
 # Keep reference-type filters stable across the API and frontend.
@@ -14,12 +15,17 @@ class ReferenceType(StrEnum):
     """Supported cultural-reference categories."""
 
     ALL = "all"
+    TIKTOK_SHORT_FORM = "tiktok_short_form"
+    INSTAGRAM_REELS = "instagram_reels"
     MEMES = "memes"
-    INTERNET = "internet"
+    REACTION_GIFS = "reaction_gifs"
     FILM = "film"
+    TV = "tv"
     ANIME = "anime"
-    TIKTOK = "tiktok"
+    INTERNET_CULTURE = "internet_culture"
     UNCLASSIFIED = "unclassified"
+    TIKTOK = "tiktok_short_form"
+    INTERNET = "internet_culture"
 
 
 # Classify the retrieved page itself rather than echoing the requested filter.
@@ -57,21 +63,34 @@ class ReferenceEra(StrEnum):
     """Supported cultural-reference eras."""
 
     ANY = "any"
+    TRENDING_CURRENT = "trending_current"
+    TWENTY_TWENTY_PRESENT = "2020_present"
+    TWENTY_FIFTEEN_NINETEEN = "2015_2019"
+    TWENTY_TEN_FOURTEEN = "2010_2014"
     TWO_THOUSANDS = "2000s"
-    TWENTY_TENS = "2010s"
-    TWENTY_TWENTIES = "2020s"
-    CURRENT = "current"
+    PRE_TWO_THOUSAND = "pre_2000"
+    CURRENT = "trending_current"
+    TWENTY_TWENTIES = "2020_present"
+    TWENTY_TENS = "2010_2014"
 
 
 # Represent the creative dimension that should dominate deterministic ranking.
 class MatchFor(StrEnum):
     """Supported reference-matching priorities."""
 
-    ALL = "all"
-    ACTING = "acting"
+    BEST_OVERALL = "best_overall"
+    PERFORMANCE = "performance"
+    FACIAL_EXPRESSION = "facial_expression"
     SITUATION = "situation"
-    VISUAL = "visual"
-    TIMING = "timing"
+    VISUAL_COMPOSITION = "visual_composition"
+    BODY_LANGUAGE = "body_language"
+    COMEDIC_TIMING = "comedic_timing"
+    EMOTIONAL_BEAT = "emotional_beat"
+    CAMERA_FRAMING = "camera_framing"
+    ALL = "best_overall"
+    ACTING = "performance"
+    VISUAL = "visual_composition"
+    TIMING = "comedic_timing"
 
 
 # Validate user-facing search controls before they affect external requests.
@@ -80,9 +99,37 @@ class ReferenceSearchPreferences(BaseModel):
 
     reference_type: ReferenceType = ReferenceType.ALL
     era: ReferenceEra = ReferenceEra.ANY
-    match_for: MatchFor = MatchFor.ALL
-    obscurity: int = Field(default=50, ge=0, le=100)
+    match_for: MatchFor = MatchFor.BEST_OVERALL
+    recognition: int = Field(default=50, ge=0, le=100)
+    user_intent: str = Field(default="", max_length=500)
     max_results: int = Field(default=6, ge=3, le=6)
+
+    # Accept persisted v1 filters while normalizing every new request to v2 semantics.
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_v1_preferences(cls, value: object) -> object:
+        """Map legacy enum values and obscurity into their v2 equivalents."""
+
+        if not isinstance(value, dict):
+            return value
+        payload = dict(value)
+        type_map = {"tiktok": "tiktok_short_form", "internet": "internet_culture"}
+        era_map = {"current": "trending_current", "2020s": "2020_present", "2010s": "2010_2014"}
+        match_map = {"all": "best_overall", "acting": "performance", "visual": "visual_composition", "timing": "comedic_timing"}
+        payload["reference_type"] = type_map.get(payload.get("reference_type"), payload.get("reference_type", "all"))
+        payload["era"] = era_map.get(payload.get("era"), payload.get("era", "any"))
+        payload["match_for"] = match_map.get(payload.get("match_for"), payload.get("match_for", "best_overall"))
+        if "recognition" not in payload and "obscurity" in payload:
+            payload["recognition"] = 100 - int(payload["obscurity"])
+        payload.pop("obscurity", None)
+        return payload
+
+    # Retain a read-only compatibility view for established provider adapters.
+    @property
+    def obscurity(self) -> int:
+        """Return the inverse v1 value while downstream code migrates to recognition."""
+
+        return 100 - self.recognition
 
 
 # Preserve one factual result exactly as normalized from Parallel Search.
@@ -99,6 +146,8 @@ class CulturalReferenceCandidate(BaseModel):
     cultural_reference_type: CulturalReferenceType = CulturalReferenceType.OTHER
     source_platform: SourcePlatform = SourcePlatform.WEB
     discovered_from_query: str
+    discovered_from_queries: list[str] = Field(default_factory=list)
+    search_family: str = "general"
     published_at: str | None = None
     source_metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -125,6 +174,7 @@ class CulturalSearchResult(BaseModel):
     rejected_candidate_count: int = Field(default=0, ge=0)
     extracted_candidate_count: int = Field(default=0, ge=0)
     retry_count: int = Field(default=0, ge=0, le=1)
+    search_plan: SearchPlan | None = None
 
     # Make partial success explicit for HTTP consumers.
     @property
@@ -141,9 +191,13 @@ class ReferenceAssessment(BaseModel):
     candidate_id: str
     emotional_similarity: int = Field(ge=0, le=100)
     situational_similarity: int = Field(ge=0, le=100)
+    facial_expression_similarity: int = Field(default=0, ge=0, le=100)
+    performance_similarity: int = Field(default=0, ge=0, le=100)
+    body_language_similarity: int = Field(default=0, ge=0, le=100)
     visual_similarity: int = Field(ge=0, le=100)
     acting_similarity: int = Field(ge=0, le=100)
     timing_similarity: int = Field(ge=0, le=100)
+    camera_framing_similarity: int = Field(default=0, ge=0, le=100)
     recognizability: int = Field(ge=0, le=100)
     cultural_relevance: int = Field(ge=0, le=100)
     artifact_verified: bool
@@ -152,6 +206,9 @@ class ReferenceAssessment(BaseModel):
     artifact_evidence: str
     match_reason: str
     tags: list[str] = Field(default_factory=list, max_length=6)
+    useful_directing_elements: list[str] = Field(default_factory=list, max_length=6)
+    best_for: list[str] = Field(default_factory=list, max_length=3)
+    recognizability_is_inferred: bool = True
 
 
 # Give Gemini one schema for assessing a bounded candidate collection.
@@ -168,9 +225,13 @@ class GeminiReferenceAssessment(BaseModel):
     id: str
     emotion: int
     situation: int
+    facial: int
+    performance: int
+    body: int
     visual: int
     acting: int
     timing: int
+    camera: int
     recognition: int
     culture: int
     artifact: bool
@@ -179,6 +240,7 @@ class GeminiReferenceAssessment(BaseModel):
     evidence: str
     reason: str
     tags: list[str] = Field(default_factory=list)
+    elements: list[str] = Field(default_factory=list)
 
 
 # Avoid nested bounds in the serving schema while retaining JSON structure.
@@ -233,6 +295,7 @@ class ReferenceSearchResponse(BaseModel):
     partial_success: bool = False
     retry_count: int = Field(default=0, ge=0, le=1)
     search_id: str | None = None
+    search_plan: SearchPlan | None = None
 
 
 # Limit the optional Gemini reformulation pass to concise search intent.

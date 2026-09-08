@@ -110,9 +110,14 @@ def deduplicate_candidates(
             if character.isalnum() or character.isspace()
         )
         normalized_title = " ".join(normalized_title.split())
-        if canonical_url in seen_urls or (
-            len(normalized_title) >= 12 and normalized_title in seen_titles
-        ):
+        if canonical_url in seen_urls or (len(normalized_title) >= 12 and normalized_title in seen_titles):
+            # Merge query provenance into the first canonical artifact.
+            for index, existing in enumerate(unique):
+                existing_title = " ".join("".join(character.lower() for character in existing.title if character.isalnum() or character.isspace()).split())
+                if canonicalize_url(str(existing.url)) == canonical_url or (normalized_title and existing_title == normalized_title):
+                    merged_queries = list(dict.fromkeys([*existing.discovered_from_queries, *candidate.discovered_from_queries, candidate.discovered_from_query]))
+                    unique[index] = existing.model_copy(update={"discovered_from_queries": merged_queries})
+                    break
             continue
         seen_urls.add(canonical_url)
         if normalized_title:
@@ -161,6 +166,8 @@ def normalize_parallel_result(
         image_url=None,
         reference_type=normalized_type,
         discovered_from_query=query,
+        discovered_from_queries=[query],
+        search_family=_infer_search_family(query),
         published_at=_read_value(result, "publish_date", None),
         source_metadata={
             "provider": "parallel",
@@ -413,7 +420,7 @@ def _read_value(value: object, name: str, default: object) -> object:
 
 # Constrain generated queries to the official Search API's concise input guidance.
 def _prepare_queries(queries: Sequence[str]) -> list[str]:
-    """Return unique non-empty queries capped at six words and five calls."""
+    """Return unique concise queries with an eight-call provider ceiling."""
 
     prepared: list[str] = []
     seen: set[str] = set()
@@ -423,9 +430,28 @@ def _prepare_queries(queries: Sequence[str]) -> list[str]:
         if concise and key not in seen:
             prepared.append(concise)
             seen.add(key)
-        if len(prepared) == 5:
+        if len(prepared) == 8:
             break
     return prepared
+
+
+# Classify query provenance without changing provider-owned result facts.
+def _infer_search_family(query: str) -> str:
+    """Return the dominant creative query family for transparency."""
+
+    words = set(query.casefold().replace("/", " ").split())
+    families = (
+        ("platform", {"tiktok", "reels", "instagram", "shorts", "giphy", "tenor"}),
+        ("facial_reaction", {"face", "facial", "eyes", "smile", "expression", "reaction"}),
+        ("physical_action", {"fall", "trip", "slapstick", "movement", "physical", "body"}),
+        ("performance", {"acting", "performance", "deadpan", "delivery"}),
+        ("emotional_reversal", {"realization", "embarrassment", "romantic", "angry", "emotion"}),
+        ("internet_terminology", {"meme", "gif", "viral"}),
+    )
+    for family, markers in families:
+        if words.intersection(markers):
+            return family
+    return "situation"
 
 
 # Translate a site-targeted query into Parallel's hard per-call source policy.
@@ -451,10 +477,13 @@ def _build_objective(
     type_labels = {
         ReferenceType.ALL: "memes, internet culture, film, television, anime, and viral moments",
         ReferenceType.MEMES: "memes",
-        ReferenceType.INTERNET: "internet culture",
-        ReferenceType.FILM: "film and television",
+        ReferenceType.INTERNET_CULTURE: "internet culture",
+        ReferenceType.REACTION_GIFS: "reaction GIFs",
+        ReferenceType.FILM: "film moments",
+        ReferenceType.TV: "television moments",
         ReferenceType.ANIME: "anime",
-        ReferenceType.TIKTOK: "TikTok and viral short video",
+        ReferenceType.TIKTOK_SHORT_FORM: "TikTok, Reels, and YouTube Shorts",
+        ReferenceType.INSTAGRAM_REELS: "Instagram Reels",
         ReferenceType.UNCLASSIFIED: "cultural references",
     }
     type_text = type_labels[reference_type]

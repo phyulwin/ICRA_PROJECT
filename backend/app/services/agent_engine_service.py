@@ -16,6 +16,7 @@ from backend.app.schemas.reference import (
     ReferenceSearchRequest,
     ReferenceSearchResponse,
 )
+from backend.app.schemas.directing import DirectingGuidance
 from backend.app.schemas.scene import Scene, SceneAnalysis
 
 
@@ -86,7 +87,8 @@ class AgentEngineGateway:
             "Use search_cultural_references exactly once with these preferences: "
             f"reference_type={preferences.reference_type.value}, "
             f"era={preferences.era.value}, match_for={preferences.match_for.value}, "
-            f"obscurity={preferences.obscurity}, max_results={preferences.max_results}. "
+            f"recognition={preferences.recognition}, max_results={preferences.max_results}, "
+            f"user_intent={preferences.user_intent!r}. "
             "Then call rank_references exactly once when candidates exist. Do not "
             "reanalyze the scene and do not invent results."
         )
@@ -112,6 +114,7 @@ class AgentEngineGateway:
                         "extracted_candidate_count", 0
                     ),
                     "retry_count": search_payload.get("retry_count", 0),
+                    "search_plan": search_payload.get("search_plan"),
                 }
             )
             rank_payload = results.get("rank_references", {})
@@ -119,21 +122,54 @@ class AgentEngineGateway:
                 RankedReference.model_validate(item)
                 for item in rank_payload.get("ranked_references", [])
             ]
+            final_queries = rank_payload.get("searched_queries") or search_result.searched_queries
+            final_plan = rank_payload.get("search_plan") or search_result.search_plan
             return ReferenceSearchResponse(
                 scene_id=request.scene.scene_id,
                 references=ranked,
                 raw_candidate_count=search_result.raw_candidate_count,
                 rejected_candidate_count=search_result.rejected_candidate_count,
                 extracted_candidate_count=search_result.extracted_candidate_count,
-                searched_queries=search_result.searched_queries,
+                searched_queries=final_queries,
                 failed_queries=search_result.failed_queries,
                 warnings=search_result.warnings,
                 partial_success=search_result.partial_success,
-                retry_count=search_result.retry_count,
+                retry_count=max(search_result.retry_count, rank_payload.get("retry_count", 0)),
+                search_plan=final_plan,
             )
         except (TypeError, ValidationError) as exc:
             raise AgentEngineInvocationError(
                 "The managed reference service returned an invalid result."
+            ) from exc
+
+    # Generate direction from a selected persisted reference without new retrieval.
+    async def generate_directing_guidance(
+        self,
+        scene: Scene,
+        analysis: SceneAnalysis,
+        selected_reference: RankedReference,
+    ) -> DirectingGuidance:
+        """Return the managed generate_directing_guidance function response."""
+
+        state = ProjectSessionState(
+            selected_scene_id=scene.scene_id,
+            scene=scene,
+            scene_analysis=analysis,
+            selected_reference_id=selected_reference.reference.id,
+            selected_reference=selected_reference,
+        )
+        results = await self._invoke(
+            state,
+            "Call generate_directing_guidance exactly once for the selected reference "
+            "already stored in session state. Do not analyze, search, or rank again. "
+            "Return only a concise completion after the tool succeeds.",
+        )
+        payload = results.get("generate_directing_guidance", {})
+        try:
+            return DirectingGuidance.model_validate(payload["directing_guidance"])
+        except (KeyError, TypeError, ValidationError) as exc:
+            raise AgentEngineInvocationError(
+                "The managed directing service returned an invalid result."
             ) from exc
 
     # Create an isolated managed session and retain only genuine function responses.

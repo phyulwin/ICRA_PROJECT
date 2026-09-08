@@ -4,6 +4,7 @@
 import json
 import os
 from collections.abc import Callable, Sequence
+from datetime import datetime, timezone
 
 from google import genai
 from google.genai import types
@@ -18,8 +19,10 @@ from backend.app.schemas.reference import (
     RankedReference,
     ReferenceAssessment,
     ReferenceSearchPreferences,
+    ReferenceType,
 )
 from backend.app.schemas.scene import Scene, SceneAnalysis
+from backend.app.schemas.search_plan import SearchPlan
 from backend.app.services.gemini_client import create_gemini_client
 from backend.app.services.gemini_safety import GEMINI_SAFETY_SETTINGS
 from backend.app.services.reference_quality import DIRECT_ARTIFACT_TYPES
@@ -32,45 +35,58 @@ class ReferenceRankingError(RuntimeError):
 
 # Own all final-score weights in application code rather than model output.
 WEIGHTS_BY_PRIORITY: dict[MatchFor, dict[str, float]] = {
-    MatchFor.ALL: {
-        "visual_similarity": 0.25,
-        "situational_similarity": 0.20,
-        "acting_similarity": 0.20,
-        "timing_similarity": 0.15,
-        "emotional_similarity": 0.10,
-        "recognizability": 0.10,
+    MatchFor.BEST_OVERALL: {
+        "situational_similarity": 0.15, "facial_expression_similarity": 0.10,
+        "performance_similarity": 0.15, "body_language_similarity": 0.10,
+        "visual_similarity": 0.10, "timing_similarity": 0.10,
+        "emotional_similarity": 0.10, "camera_framing_similarity": 0.05,
+        "recognizability": 0.10, "artifact_quality": 0.05,
     },
     MatchFor.SITUATION: {
-        "situational_similarity": 0.40,
-        "visual_similarity": 0.20,
-        "acting_similarity": 0.15,
-        "timing_similarity": 0.10,
-        "emotional_similarity": 0.10,
-        "recognizability": 0.05,
+        "situational_similarity": 0.35, "performance_similarity": 0.15,
+        "timing_similarity": 0.15, "emotional_similarity": 0.10,
+        "visual_similarity": 0.10, "body_language_similarity": 0.05,
+        "recognizability": 0.05, "artifact_quality": 0.05,
     },
-    MatchFor.ACTING: {
-        "acting_similarity": 0.40,
-        "visual_similarity": 0.20,
-        "situational_similarity": 0.15,
-        "timing_similarity": 0.15,
-        "emotional_similarity": 0.05,
-        "recognizability": 0.05,
+    MatchFor.PERFORMANCE: {
+        "performance_similarity": 0.35, "body_language_similarity": 0.15,
+        "facial_expression_similarity": 0.15, "situational_similarity": 0.10,
+        "timing_similarity": 0.10, "emotional_similarity": 0.05,
+        "visual_similarity": 0.05, "recognizability": 0.05,
     },
-    MatchFor.VISUAL: {
-        "visual_similarity": 0.45,
-        "situational_similarity": 0.15,
-        "acting_similarity": 0.15,
-        "timing_similarity": 0.10,
-        "emotional_similarity": 0.10,
-        "recognizability": 0.05,
+    MatchFor.FACIAL_EXPRESSION: {
+        "facial_expression_similarity": 0.35, "emotional_similarity": 0.20,
+        "performance_similarity": 0.15, "situational_similarity": 0.10,
+        "visual_similarity": 0.10, "recognizability": 0.10,
     },
-    MatchFor.TIMING: {
-        "timing_similarity": 0.40,
-        "visual_similarity": 0.20,
-        "situational_similarity": 0.15,
-        "acting_similarity": 0.10,
-        "emotional_similarity": 0.10,
-        "recognizability": 0.05,
+    MatchFor.VISUAL_COMPOSITION: {
+        "visual_similarity": 0.35, "camera_framing_similarity": 0.25,
+        "situational_similarity": 0.10, "body_language_similarity": 0.10,
+        "performance_similarity": 0.05, "emotional_similarity": 0.05,
+        "recognizability": 0.05, "artifact_quality": 0.05,
+    },
+    MatchFor.BODY_LANGUAGE: {
+        "body_language_similarity": 0.35, "performance_similarity": 0.20,
+        "visual_similarity": 0.15, "situational_similarity": 0.10,
+        "emotional_similarity": 0.10, "recognizability": 0.05,
+        "artifact_quality": 0.05,
+    },
+    MatchFor.COMEDIC_TIMING: {
+        "timing_similarity": 0.35, "situational_similarity": 0.20,
+        "performance_similarity": 0.15, "emotional_similarity": 0.10,
+        "visual_similarity": 0.10, "recognizability": 0.10,
+    },
+    MatchFor.EMOTIONAL_BEAT: {
+        "emotional_similarity": 0.35, "facial_expression_similarity": 0.20,
+        "performance_similarity": 0.15, "timing_similarity": 0.10,
+        "situational_similarity": 0.05, "body_language_similarity": 0.05,
+        "recognizability": 0.05, "artifact_quality": 0.05,
+    },
+    MatchFor.CAMERA_FRAMING: {
+        "camera_framing_similarity": 0.40, "visual_similarity": 0.25,
+        "situational_similarity": 0.10, "body_language_similarity": 0.05,
+        "performance_similarity": 0.05, "timing_similarity": 0.05,
+        "recognizability": 0.05, "artifact_quality": 0.05,
     },
 }
 
@@ -83,22 +99,88 @@ def calculate_weighted_score(
     """Return an application-owned 0–100 weighted reference score."""
 
     weights = WEIGHTS_BY_PRIORITY[preferences.match_for]
-    niche_strength = max(0.0, (preferences.obscurity - 50) / 50)
-    recognizability_fit = round(
-        assessment.recognizability * (1 - niche_strength)
-        + (100 - assessment.recognizability) * niche_strength
-    )
+    recognition_target = preferences.recognition
+    recognizability_fit = max(0, 100 - abs(assessment.recognizability - recognition_target))
     components = {
         "situational_similarity": assessment.situational_similarity,
         "emotional_similarity": assessment.emotional_similarity,
-        "acting_similarity": assessment.acting_similarity,
+        "facial_expression_similarity": assessment.facial_expression_similarity,
+        "performance_similarity": assessment.performance_similarity,
+        "body_language_similarity": assessment.body_language_similarity,
         "visual_similarity": assessment.visual_similarity,
         "timing_similarity": assessment.timing_similarity,
+        "camera_framing_similarity": assessment.camera_framing_similarity,
         "recognizability": recognizability_fit,
+        "artifact_quality": assessment.artifact_quality,
     }
     return round(
         sum(components[name] * weight for name, weight in weights.items())
     )
+
+
+# Apply evidence-backed era and reference-strategy fit after component weighting.
+def calculate_candidate_score(assessment: ReferenceAssessment, candidate: CulturalReferenceCandidate, preferences: ReferenceSearchPreferences) -> int:
+    """Return a deterministic score without fabricating missing dates or popularity."""
+
+    score = calculate_weighted_score(assessment, preferences)
+    if preferences.reference_type != ReferenceType.ALL:
+        score += 6 if _matches_reference_type(candidate, preferences.reference_type) else -18
+    era_fit = _era_fit(candidate.published_at, preferences.era.value)
+    if era_fit is not None:
+        score += round((era_fit - 50) * 0.10)
+    return max(0, min(100, score))
+
+
+# Determine selected-type adherence from source and artifact facts.
+def _matches_reference_type(candidate: CulturalReferenceCandidate, reference_type: ReferenceType) -> bool:
+    """Return whether a classified real candidate satisfies the retrieval strategy."""
+
+    artifact = candidate.cultural_reference_type
+    platform = candidate.source_platform
+    if reference_type == ReferenceType.TIKTOK_SHORT_FORM:
+        return platform.value in {"tiktok", "instagram", "youtube"} and artifact.value in {"tiktok", "instagram_reel", "viral_video"}
+    if reference_type == ReferenceType.INSTAGRAM_REELS:
+        return artifact == CulturalReferenceType.INSTAGRAM_REEL
+    if reference_type == ReferenceType.MEMES:
+        return artifact.value in {"reaction_meme", "gif"}
+    if reference_type == ReferenceType.REACTION_GIFS:
+        return artifact == CulturalReferenceType.GIF
+    if reference_type == ReferenceType.ANIME:
+        return artifact == CulturalReferenceType.ANIME_MOMENT
+    if reference_type in {ReferenceType.FILM, ReferenceType.TV}:
+        return artifact == CulturalReferenceType.FILM_TV_MOMENT
+    if reference_type == ReferenceType.INTERNET_CULTURE:
+        return artifact in DIRECT_ARTIFACT_TYPES
+    return True
+
+
+# Score only genuine provider dates and remain neutral when evidence is absent.
+def _era_fit(published_at: str | None, era_value: str) -> int | None:
+    """Return an evidence-backed 0-100 era fit or None for unknown dates."""
+
+    if era_value == "any" or not published_at:
+        return None
+    try:
+        year = datetime.fromisoformat(published_at.replace("Z", "+00:00")).year
+    except (TypeError, ValueError):
+        try:
+            year = int(published_at[:4])
+        except (TypeError, ValueError):
+            return None
+    current_year = datetime.now(timezone.utc).year
+    ranges = {"2020_present": (2020, current_year), "2015_2019": (2015, 2019), "2010_2014": (2010, 2014), "2000s": (2000, 2009), "pre_2000": (0, 1999)}
+    if era_value == "trending_current":
+        return 100 if year >= current_year - 1 else 60 if year >= current_year - 3 else 0
+    start, end = ranges.get(era_value, (0, current_year))
+    return 100 if start <= year <= end else 0
+
+
+# Derive result explanations from independent scores rather than model prose alone.
+def _best_for(assessment: ReferenceAssessment) -> list[str]:
+    """Return the two strongest creative dimensions."""
+
+    values = {"Situation": assessment.situational_similarity, "Facial Expression": assessment.facial_expression_similarity, "Performance": assessment.performance_similarity, "Body Language": assessment.body_language_similarity, "Visual Composition": assessment.visual_similarity, "Comedic Timing": assessment.timing_similarity, "Emotional Beat": assessment.emotional_similarity, "Camera / Framing": assessment.camera_framing_similarity}
+    return [name for name, _ in sorted(values.items(), key=lambda item: item[1], reverse=True)[:2]]
 
 
 # Assess a bounded candidate set and join results back to immutable Parallel facts.
@@ -112,14 +194,18 @@ Use the exact candidate IDs. Score each requested component from 0 to 100. Base 
 only on the supplied title and excerpt. Never create or modify titles, URLs, sources, or
 candidate IDs. Do not calculate or return an overall score. The compact response fields
 map as follows: id=candidate ID, emotion=emotional similarity,
-situation=situational similarity, visual=visual similarity, acting=acting similarity,
-timing=timing similarity, recognition=recognizability, culture=cultural relevance,
+situation=situational similarity, facial=facial-expression similarity,
+performance=performance similarity, body=body-language similarity,
+visual=visual-composition similarity, acting=acting similarity,
+timing=timing similarity, camera=camera/framing similarity,
+recognition=an inferred recognizability estimate from source and cultural evidence,
+culture=cultural relevance,
 artifact=true only when the URL and evidence represent an actual identifiable post,
 video, GIF, meme, or film/TV/anime moment; kind must be reaction_meme, viral_video,
 tiktok, instagram_reel, gif, film_tv_moment, anime_moment, informational_article, or
 other; quality=artifact evidence quality; evidence=the source evidence; reason=why the
 observable performance, facial expression, body language, action, blocking, or timing
-matches. An article discussing a similar topic is not an artifact, regardless of semantic
+matches; elements lists concrete useful directing elements. An article discussing a similar topic is not an artifact, regardless of semantic
 similarity, and must use informational_article with artifact=false."""
 
     # Accept an injected Gemini client for deterministic automated testing.
@@ -156,6 +242,7 @@ similarity, and must use informational_article with artifact=false."""
         scene_analysis: SceneAnalysis,
         candidates: Sequence[CulturalReferenceCandidate],
         preferences: ReferenceSearchPreferences,
+        search_plan: SearchPlan | None = None,
     ) -> list[RankedReference]:
         """Return the top real candidates ordered by deterministic final score."""
 
@@ -179,6 +266,8 @@ similarity, and must use informational_article with artifact=false."""
                 "discovered_from_query": candidate.discovered_from_query,
                 "source_platform": candidate.source_platform.value,
                 "preclassified_type": candidate.cultural_reference_type.value,
+                "search_family": candidate.search_family,
+                "discovered_from_queries": candidate.discovered_from_queries,
                 "parallel_extracted": bool(
                     candidate.source_metadata.get("parallel_extracted")
                 ),
@@ -191,6 +280,8 @@ similarity, and must use informational_article with artifact=false."""
             f"EMOTIONS\n{', '.join(scene_analysis.emotions)}\n\n"
             f"MECHANISM\n{scene_analysis.comedic_or_dramatic_mechanism}\n\n"
             f"MATCH PRIORITY\n{preferences.match_for.value}\n\n"
+            f"SEARCH PLAN\n{search_plan.model_dump_json() if search_plan else '{}'}\n\n"
+            f"USER INTENT\n{preferences.user_intent}\n\n"
             f"CANDIDATES\n{json.dumps(payload, ensure_ascii=False)}"
         )
         try:
@@ -232,6 +323,7 @@ similarity, and must use informational_article with artifact=false."""
                     assessment,
                     candidate,
                 )
+                assessment = assessment.model_copy(update={"best_for": _best_for(assessment)})
             if (
                 assessment.candidate_id in candidates_by_id
                 and assessment.candidate_id not in assessments_by_id
@@ -242,7 +334,7 @@ similarity, and must use informational_article with artifact=false."""
             RankedReference(
                 reference=candidates_by_id[candidate_id],
                 assessment=assessment,
-                overall_score=calculate_weighted_score(assessment, preferences),
+                overall_score=calculate_candidate_score(assessment, candidates_by_id[candidate_id], preferences),
             )
             for candidate_id, assessment in assessments_by_id.items()
         ]
@@ -273,9 +365,13 @@ similarity, and must use informational_article with artifact=false."""
             candidate_id=wire_assessment.id,
             emotional_similarity=wire_assessment.emotion,
             situational_similarity=wire_assessment.situation,
+            facial_expression_similarity=wire_assessment.facial,
+            performance_similarity=wire_assessment.performance,
+            body_language_similarity=wire_assessment.body,
             visual_similarity=wire_assessment.visual,
             acting_similarity=wire_assessment.acting,
             timing_similarity=wire_assessment.timing,
+            camera_framing_similarity=wire_assessment.camera,
             recognizability=wire_assessment.recognition,
             cultural_relevance=wire_assessment.culture,
             artifact_verified=wire_assessment.artifact,
@@ -284,6 +380,9 @@ similarity, and must use informational_article with artifact=false."""
             artifact_evidence=wire_assessment.evidence,
             match_reason=wire_assessment.reason,
             tags=wire_assessment.tags,
+            useful_directing_elements=wire_assessment.elements,
+            best_for=[],
+            recognizability_is_inferred=True,
         )
 
     # Treat verified direct-media URL patterns as authoritative artifact evidence.

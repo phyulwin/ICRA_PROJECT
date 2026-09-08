@@ -9,6 +9,7 @@ from google import genai
 from google.genai import types
 from pydantic import ValidationError
 
+from backend.app.agents.search_planner import SearchPlanner
 from backend.app.schemas.reference import (
     CulturalSearchResult,
     QueryReformulation,
@@ -18,7 +19,6 @@ from backend.app.schemas.scene import Scene, SceneAnalysis
 from backend.app.services.gemini_client import create_gemini_client
 from backend.app.services.gemini_safety import GEMINI_SAFETY_SETTINGS
 from backend.app.services.reference_quality import (
-    build_artifact_queries,
     count_direct_artifacts,
     filter_informational_candidates,
     prioritize_artifacts,
@@ -56,12 +56,18 @@ not include site: filters and do not invent search results or URLs."""
         gemini_client: genai.Client | None = None,
         model_name: str | None = None,
         gemini_client_factory: Callable[[], genai.Client] = create_gemini_client,
+        search_planner: SearchPlanner | None = None,
     ) -> None:
         """Initialize the agent while deferring external clients until use."""
 
         self._parallel_search = parallel_search or ParallelSearchClient()
         self._gemini_client = gemini_client
         self._gemini_client_factory = gemini_client_factory
+        self._search_planner = search_planner or SearchPlanner(
+            client=gemini_client,
+            model_name=model_name,
+            client_factory=gemini_client_factory,
+        )
         self.model_name = model_name or os.getenv(
             "GOOGLE_GENAI_MODEL", "gemini-2.5-flash"
         )
@@ -72,13 +78,20 @@ not include site: filters and do not invent search results or URLs."""
         scene: Scene,
         scene_analysis: SceneAnalysis,
         preferences: ReferenceSearchPreferences,
+        attempted_queries: list[str] | None = None,
+        failure_diagnosis: str | None = None,
+        allow_artifact_retry: bool = True,
     ) -> CulturalSearchResult:
         """Return normalized real candidates sourced exclusively from Parallel."""
 
-        original_queries = build_artifact_queries(
-            scene_analysis.reference_queries,
-            preferences.reference_type,
+        plan = self._search_planner.plan(
+            scene,
+            scene_analysis,
+            preferences,
+            attempted_queries=attempted_queries,
+            failure_diagnosis=failure_diagnosis,
         )
+        original_queries = plan.queries
         if not original_queries:
             return CulturalSearchResult(
                 candidates=[],
@@ -86,7 +99,7 @@ not include site: filters and do not invent search results or URLs."""
                 warnings=["This scene analysis did not contain reference queries."],
             )
 
-        objective = self._build_scene_objective(scene, scene_analysis, preferences)
+        objective = self._build_scene_objective(scene, scene_analysis, preferences, plan)
         retrieval_session_id = f"icra_{uuid4().hex}"
         initial = self._parallel_search.search_cultural_references(
             queries=original_queries,
@@ -100,17 +113,22 @@ not include site: filters and do not invent search results or URLs."""
         )
         initial_accepted, _ = filter_informational_candidates(initial.candidates)
         refined = None
-        if (
+        if allow_artifact_retry and (
             count_direct_artifacts(initial_accepted)
             < self.MIN_ARTIFACTS_BEFORE_REFORMULATION
         ):
             try:
-                refined_queries = build_artifact_queries(
-                    self._reformulate_queries(
-                        scene, scene_analysis, preferences, initial.searched_queries
+                plan = self._search_planner.plan(
+                    scene,
+                    scene_analysis,
+                    preferences,
+                    attempted_queries=initial.searched_queries,
+                    failure_diagnosis=(
+                        "Too few direct cultural artifacts survived the first gate; "
+                        "replace topic language with observable reactions and moments."
                     ),
-                    preferences.reference_type,
                 )
+                refined_queries = plan.queries
                 refined = self._parallel_search.search_cultural_references(
                     queries=refined_queries,
                     reference_type=preferences.reference_type,
@@ -177,6 +195,7 @@ not include site: filters and do not invent search results or URLs."""
             rejected_candidate_count=len(combined_raw) - len(final_candidates),
             extracted_candidate_count=extracted_count,
             retry_count=int(refined is not None),
+            search_plan=plan,
         )
 
     # Ask Gemini only for improved search intent, never for source candidates.
@@ -233,16 +252,20 @@ not include site: filters and do not invent search results or URLs."""
         scene: Scene,
         scene_analysis: SceneAnalysis,
         preferences: ReferenceSearchPreferences,
+        plan: object | None = None,
     ) -> str:
         """Translate scene semantics and filters into a Parallel objective."""
 
         type_labels = {
             "all": "memes, internet culture, film, television, anime, and viral moments",
             "memes": "memes",
-            "internet": "internet culture",
-            "film": "film and television",
+            "reaction_gifs": "reaction GIFs",
+            "internet_culture": "internet culture",
+            "film": "film moments",
+            "tv": "television moments",
             "anime": "anime",
-            "tiktok": "TikTok and viral short video",
+            "tiktok_short_form": "TikTok, Reels, and YouTube Shorts",
+            "instagram_reels": "Instagram Reels",
         }
         obscurity_text = (
             "mainstream and widely recognizable"
@@ -260,7 +283,9 @@ not include site: filters and do not invent search results or URLs."""
             "Return actual posts, videos, Shorts, Reels, GIFs, meme pages, or identifiable "
             "film/TV moments showing comparable performance, body language, facial reaction, "
             "blocking, visual action, or comedic timing. Exclude news, advice, business blogs, "
-            "educational pages, SEO listicles, and articles merely discussing the topic."
+            "educational pages, SEO listicles, and articles merely discussing the topic. "
+            f"Creative target and explicit user intent: {getattr(plan, 'creative_target', '')}. "
+            f"Desired performance: {getattr(plan, 'desired_performance', '')}."
         )
 
     # Create Gemini only when the optional weak-result reformulation is required.

@@ -222,6 +222,7 @@ class FirestoreProjectService:
         status: str,
         failed_queries: list[dict[str, Any]],
         warnings: list[str],
+        search_plan=None,
     ) -> SearchDetail:
         project_ref = self._project_ref(project_id)
         scene_ref = project_ref.collection("scenes").document(scene_id)
@@ -241,6 +242,7 @@ class FirestoreProjectService:
             status=status,
             failed_queries=failed_queries,
             warnings=warnings,
+            search_plan=search_plan,
         )
         batch = self._db().batch()
         batch.set(search_ref, record.model_dump(mode="json"))

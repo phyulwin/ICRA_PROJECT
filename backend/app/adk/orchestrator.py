@@ -12,6 +12,7 @@ from backend.app.schemas.reference import (
 )
 from backend.app.schemas.scene import ReferenceOpportunity
 from backend.app.services.reference_preview import ReferencePreviewResolver
+from backend.app.tools.parallel_search import deduplicate_candidates
 
 
 logger = logging.getLogger("cultural_reference_director.workflow")
@@ -63,13 +64,31 @@ class ReferenceWorkflowOrchestrator:
                 request.scene,
                 request.scene_analysis,
                 request.preferences,
+                allow_artifact_retry=False,
             )
             ranked = self._ranker.rank(
                 request.scene,
                 request.scene_analysis,
                 search_result.candidates,
                 request.preferences,
+                search_result.search_plan,
             )
+            # Permit one diagnosed reformulation only after observing ranked quality.
+            if len(ranked) < 3 and search_result.retry_count == 0:
+                refined = self._search_agent.search(
+                    request.scene,
+                    request.scene_analysis,
+                    request.preferences,
+                    attempted_queries=search_result.searched_queries,
+                    failure_diagnosis=(
+                        "Fewer than three candidates passed artifact and creative-match "
+                        "thresholds; reduce topical wording and seek observable behavior."
+                    ),
+                    allow_artifact_retry=False,
+                )
+                combined = deduplicate_candidates([*search_result.candidates, *refined.candidates], limit=24)
+                ranked = self._ranker.rank(request.scene, request.scene_analysis, combined, request.preferences, refined.search_plan)
+                search_result = search_result.model_copy(update={"candidates": combined, "searched_queries": [*search_result.searched_queries, *refined.searched_queries], "failed_queries": [*search_result.failed_queries, *refined.failed_queries], "warnings": [*search_result.warnings, *refined.warnings], "raw_candidate_count": len(combined), "retry_count": 1, "search_plan": refined.search_plan})
             ranked = self._preview_resolver.enrich_ranked_references(ranked)
             response = ReferenceSearchResponse(
                 scene_id=request.scene.scene_id,
@@ -85,6 +104,7 @@ class ReferenceWorkflowOrchestrator:
                 warnings=search_result.warnings,
                 partial_success=search_result.partial_success,
                 retry_count=search_result.retry_count,
+                search_plan=search_result.search_plan,
             )
             logger.info(
                 "reference_workflow_complete",

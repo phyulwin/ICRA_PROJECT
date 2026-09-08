@@ -10,7 +10,9 @@ from backend.app.schemas.reference import (
     RankedReference,
     ReferenceSearchPreferences,
 )
+from backend.app.schemas.directing import DirectingGuidance
 from backend.app.schemas.scene import Scene, SceneAnalysis
+from backend.app.schemas.search_plan import SearchPlan
 
 
 # Record one retrieval round without retaining uploaded media or credentials.
@@ -46,13 +48,15 @@ class ProjectSessionState(BaseModel):
         default_factory=ReferenceSearchPreferences
     )
     search_queries: list[str] = Field(default_factory=list)
+    search_plan: SearchPlan | None = None
     search_history: list[SearchHistoryEntry] = Field(default_factory=list)
     raw_reference_candidates: list[CulturalReferenceCandidate] = Field(
         default_factory=list
     )
     ranked_references: list[RankedReference] = Field(default_factory=list)
     # Durable selection lives in Firestore; this ID is the active-session pointer.
-    directing_notes: list[str] = Field(default_factory=list)
+    selected_reference: RankedReference | None = None
+    directing_guidance: DirectingGuidance | None = None
     retry_count: int = Field(default=0, ge=0, le=1)
     last_tool_status: ToolStatus | None = None
 

@@ -117,9 +117,13 @@ def test_weighted_score_calculation() -> None:
         candidate_id="ref_real",
         emotional_similarity=80,
         situational_similarity=90,
+        facial_expression_similarity=80,
+        performance_similarity=80,
+        body_language_similarity=80,
         visual_similarity=70,
         acting_similarity=80,
         timing_similarity=60,
+        camera_framing_similarity=70,
         recognizability=60,
         cultural_relevance=50,
         artifact_verified=True,
@@ -135,7 +139,7 @@ def test_weighted_score_calculation() -> None:
         ReferenceSearchPreferences(obscurity=50),
     )
 
-    assert score == 74
+    assert score == 79
 
 
 # Confirm Match For changes deterministic weights rather than model-owned sorting.
@@ -181,6 +185,10 @@ def test_ranker_preserves_parallel_source_and_sorts() -> None:
         "situation": 90,
         "visual": 70,
         "acting": 80,
+        "facial": 82,
+        "performance": 80,
+        "body": 75,
+        "camera": 65,
         "timing": 60,
         "recognition": 60,
         "culture": 50,
@@ -202,7 +210,7 @@ def test_ranker_preserves_parallel_source_and_sorts() -> None:
         ReferenceSearchPreferences(),
     )
 
-    assert ranked[0].overall_score == 74
+    assert ranked[0].overall_score == 79
     assert ranked[0].reference.title == "Real reaction scene"
     assert str(ranked[0].reference.url) == "https://example.com/real-reference"
     assert client.models.last_request["model"] == "test-model"
@@ -221,6 +229,10 @@ def test_ranker_rejects_out_of_range_wire_score() -> None:
         "situation": 90,
         "visual": 70,
         "acting": 80,
+        "facial": 80,
+        "performance": 80,
+        "body": 80,
+        "camera": 70,
         "timing": 60,
         "recognition": 60,
         "culture": 50,
@@ -267,6 +279,10 @@ def test_ranker_quality_gate_rejects_article() -> None:
         "situation": 95,
         "visual": 95,
         "acting": 95,
+        "facial": 95,
+        "performance": 95,
+        "body": 95,
+        "camera": 95,
         "timing": 95,
         "recognition": 95,
         "culture": 95,
@@ -307,6 +323,10 @@ def test_ranker_accepts_direct_artifact_despite_model_uncertainty() -> None:
         "situation": 80,
         "visual": 80,
         "acting": 80,
+        "facial": 80,
+        "performance": 80,
+        "body": 80,
+        "camera": 80,
         "timing": 80,
         "recognition": 80,
         "culture": 80,

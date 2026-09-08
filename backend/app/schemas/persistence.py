@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from backend.app.schemas.reference import RankedReference, ReferenceSearchPreferences
 from backend.app.schemas.scene import AnalyzedScene, SceneAnalysis
+from backend.app.schemas.search_plan import SearchPlan
 
 
 class ProjectRecord(BaseModel):
@@ -46,6 +47,7 @@ class SearchRecord(BaseModel):
     status: str
     failed_queries: list[dict[str, Any]] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    search_plan: SearchPlan | None = None
 
 
 class SearchDetail(SearchRecord):

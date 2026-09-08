@@ -53,6 +53,57 @@ class FakeProjectPersistence:
         return []
 
 
+# Provide credential-free Library records for FastAPI route regression tests.
+class FakeLibraryService:
+    """Record project-scoped Library writes and deletes."""
+
+    def __init__(self) -> None:
+        """Initialize durable-looking in-memory collections."""
+
+        self.references = [{"id": "reference-1", "project_id": "project-1"}]
+        self.boards = [{"id": "board-1", "project_id": "project-1"}]
+
+    def save_reference(self, project_id, request):
+        """Return the server-owned reference representation."""
+
+        return self.references[0]
+
+    def list_references(self, project_id):
+        """Return saved references for the requested project."""
+
+        return self.references
+
+    def get_reference(self, project_id, item_id):
+        """Return one saved reference."""
+
+        return self.references[0]
+
+    def delete_reference(self, project_id, item_id):
+        """Remove the requested reference."""
+
+        self.references = []
+
+    def save_directing_board(self, project_id, request):
+        """Return the server-owned board representation."""
+
+        return self.boards[0]
+
+    def list_directing_boards(self, project_id):
+        """Return saved boards for the requested project."""
+
+        return self.boards
+
+    def get_directing_board(self, project_id, board_id):
+        """Return one saved board."""
+
+        return self.boards[0]
+
+    def delete_directing_board(self, project_id, board_id):
+        """Remove the requested board."""
+
+        self.boards = []
+
+
 def test_project_lifecycle_routes(monkeypatch):
     """Expose project history CRUD without touching Firestore."""
 
@@ -94,3 +145,24 @@ def test_search_history_and_selection_routes(monkeypatch):
             },
         },
     ).status_code == 200
+
+
+# Verify Library mutations remain behind project-scoped FastAPI routes.
+def test_library_reference_and_board_routes(monkeypatch):
+    """Exercise save, list, get, and delete contracts without Firestore credentials."""
+
+    service = FakeLibraryService()
+    monkeypatch.setattr(main_module, "library_service", service)
+    client = TestClient(main_module.app)
+
+    reference_body = {"scene_id": "scene_001", "search_id": "search-1", "reference_id": "reference-1"}
+    assert client.post("/api/v1/projects/project-1/library/references", json=reference_body).status_code == 200
+    assert client.get("/api/v1/projects/project-1/library/references").json()[0]["id"] == "reference-1"
+    assert client.get("/api/v1/projects/project-1/library/references/reference-1").status_code == 200
+    assert client.delete("/api/v1/projects/project-1/library/references/reference-1").status_code == 204
+
+    board_body = {"scene_id": "scene_001", "guidance_id": "guidance-1", "user_title": "Board", "notes": "Notes"}
+    assert client.post("/api/v1/projects/project-1/library/boards", json=board_body).status_code == 200
+    assert client.get("/api/v1/projects/project-1/library/boards").json()[0]["id"] == "board-1"
+    assert client.get("/api/v1/projects/project-1/library/boards/board-1").status_code == 200
+    assert client.delete("/api/v1/projects/project-1/library/boards/board-1").status_code == 204

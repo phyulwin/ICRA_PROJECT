@@ -51,24 +51,14 @@ ICRA_PROJECT/
 From the repository root, install backend dependencies once:
 
 ```powershell
+
+python -m venv .venv
+..venv\Scripts\Activate.ps1
+
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Create `.env` from `.env.example` and retain the existing Google Cloud settings:
-
-```text
-GOOGLE_CLOUD_PROJECT=your-project-id
-GOOGLE_CLOUD_LOCATION=global
-GOOGLE_GENAI_MODEL=gemini-2.5-flash
-GOOGLE_GENAI_USE_VERTEXAI=True
-# Set this only when the path points to a real service-account file.
-# GOOGLE_APPLICATION_CREDENTIALS=C:/path/to/real-service-account.json
-PARALLEL_API_KEY=your-server-side-parallel-key
-REFERENCE_MIN_ARTIFACT_QUALITY=60
-REFERENCE_MIN_MATCH_SCORE=55
-FRONTEND_ORIGINS=http://localhost:3000
-FIRESTORE_ENABLED=True
-```
+Create `.env` from `.env.example` and retain the existing Google Cloud settings.
 
 Run the backend from the repository root in terminal 1:
 
@@ -89,17 +79,22 @@ Open `http://localhost:3000`; the FastAPI service is available at `http://localh
 
 ## Python backend setup
 
-1. Activate the virtual environment:
+1. Create the virtual environment from the repository root:
+   ```powershell
+   python -m venv .venv
+   ```
+
+2. Activate the virtual environment:
    ```powershell
    .\.venv\Scripts\Activate.ps1
    ```
 
-2. Install dependencies:
+3. Install dependencies:
    ```powershell
    python -m pip install -r requirements.txt
    ```
 
-3. Run the API:
+4. Run the API:
    ```powershell
    uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
    ```
