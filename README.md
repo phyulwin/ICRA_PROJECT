@@ -89,7 +89,7 @@ The goal is to turn that abstract direction into concrete, traceable references 
 
 # Project Setup
 
-[Project Setup](docs\PROJECT_SETUP.md): architecture, project structure, local development, environment variables, API routes, ADK, Agent Engine, testing, and deployment
+[Project Setup](docs/PROJECT_SETUP.md): architecture, project structure, local development, environment variables, API routes, ADK, Agent Engine, testing, and deployment
 
 ## License
 
