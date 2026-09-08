@@ -170,30 +170,6 @@ To repeat the deployment after setting an authenticated `gcloud` project, run:
 .\deployment\deploy_cloud_run.ps1
 ```
 
-The backend permits the exact deployed web origin plus localhost, limits screenplay uploads to 20 MiB and reference media to 50 MiB, and applies a 55 MiB HTTP ceiling, a 280-second application timeout, concurrency 8, and at most three instances. See [Phase 5 production deployment and safety](docs/phase5_implementation.md) for IAM, safety settings, deployment evidence, and limitations.
-
-## Notes
-
-The PDF implementation uses local `pypdf` extraction for deterministic screenplay splitting and Google's native PDF `Part.from_bytes` pattern as a fallback when a valid PDF has no embedded text. See the [Phase 2 implementation audit](docs/phase2_implementation.md) for official-resource traceability, adoption decisions, and deferred technologies.
-
-See the [Phase 3 implementation guide](docs/phase3_implementation.md) and [reference retrieval quality audit](docs/reference_retrieval_quality.md) for the live Parallel search flow, provenance boundary, scoring weights, Extract policy, and measured quality.
-
-See the [Phase 4 implementation guide](docs/phase4_implementation.md) for ADK tool/state architecture, official Google traceability, local commands, deployment prerequisites, and operational boundaries.
-
-The core Python dependencies, including the supported Agent Engine ADK extras, are constrained in `requirements.txt`. MCP remains deferred because the current production pipeline does not require it.
-
-## Technical Documentation
-
-Detailed implementation and operational instructions live in the project setup guide rather than being duplicated here:
-
-- [Project setup](docs/PROJECT_SETUP.md): architecture, project structure, local development, environment variables, API routes, ADK, Agent Engine, testing, and deployment
-- [Persistence state implementation](docs/persistence_state_implementation.md): Firestore model, source-of-truth boundaries, IAM, deletion behavior, verification status, and limitations
-- [Phase 2 implementation audit](docs/phase2_implementation.md)
-- [Phase 3 implementation guide](docs/phase3_implementation.md)
-- [Reference retrieval quality audit](docs/reference_retrieval_quality.md)
-- [Phase 4 ADK implementation guide](docs/phase4_implementation.md)
-- [Phase 5 production deployment and safety](docs/phase5_implementation.md)
-
 ## Acknowledgement
 
 ChatGPT/Codex AI was used to assist with writing and developing this project.

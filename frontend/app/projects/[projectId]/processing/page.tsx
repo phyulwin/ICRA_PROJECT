@@ -64,18 +64,12 @@ export default function ProcessingPage() {
 
     return (
         <AppShell>
-            <section className="mx-auto max-w-6xl px-5 py-10 sm:px-8 sm:py-16">
-                <div className="grid overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_18px_60px_rgba(30,35,60,0.08)] lg:grid-cols-[1.15fr_0.85fr]">
+            <section className="mx-auto max-w-4xl px-5 py-10 sm:px-8 sm:py-16">
+                <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_18px_60px_rgba(30,35,60,0.08)]">
                     <div className="p-6 sm:p-10">
-                        <span className="text-xs font-bold uppercase tracking-[0.16em] text-violet-700">Phase 2 · Script intelligence</span>
                         <h1 className="mt-3 text-3xl font-bold tracking-[-0.035em] text-slate-950">
                             {successful ? 'Script Analysis Complete' : status === 'error' && belongsToCurrentJob ? 'Analysis needs attention' : 'Processing Your Script…'}
                         </h1>
-                        <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600">
-                            {successful
-                                ? `Gemini returned ${result?.result.scenes.length ?? 0} validated scene ${result?.result.scenes.length === 1 ? 'analysis' : 'analyses'}.`
-                                : 'Your screenplay is being parsed and analyzed securely through the FastAPI backend.'}
-                        </p>
 
                         <div className="mt-8 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
                             <div className="flex items-center gap-3">
@@ -110,29 +104,6 @@ export default function ProcessingPage() {
                                 })}
                             </ol>
                         )}
-                    </div>
-
-                    <div className="relative hidden min-h-[590px] overflow-hidden border-l border-slate-100 bg-gradient-to-br from-slate-50 via-violet-50/70 to-white p-10 lg:grid lg:place-items-center">
-                        <div className="absolute inset-x-12 top-12 h-1 overflow-hidden rounded-full bg-violet-100">
-                            <span className="progress-sweep block h-full w-1/3 rounded-full bg-violet-600" />
-                        </div>
-                        <div className="relative w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-xl shadow-slate-200/60">
-                            <div className="flex items-center justify-between">
-                                <span className="text-xs font-bold text-slate-400">SCENE INTELLIGENCE</span>
-                                <BrainCircuit size={20} className="text-violet-600" />
-                            </div>
-                            <div className="mt-7 space-y-3">
-                                {[88, 72, 94, 60].map((width, index) => (
-                                    <div key={width} className={`h-2.5 rounded-full ${index === 2 ? 'bg-violet-500' : 'bg-slate-200'}`} style={{ width: `${width}%` }} />
-                                ))}
-                            </div>
-                            <div className="mt-8 flex flex-wrap gap-2">
-                                {['Scenes', 'Characters', 'Tone', 'Opportunities'].map((tag, index) => (
-                                    <span key={tag} className={`rounded-full px-3 py-1.5 text-[11px] font-semibold ${['bg-blue-100 text-blue-700', 'bg-violet-100 text-violet-700', 'bg-emerald-100 text-emerald-700', 'bg-amber-100 text-amber-700'][index]}`}>{tag}</span>
-                                ))}
-                            </div>
-                        </div>
-                        <p className="absolute bottom-10 text-center text-xs text-slate-500">The browser sends your script to FastAPI.<br />Gemini credentials remain on the backend.</p>
                     </div>
                 </div>
             </section>

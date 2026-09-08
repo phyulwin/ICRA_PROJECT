@@ -1,7 +1,5 @@
 # Cultural Reference Director
 
-Implementation details for the persistent Library and structured Directing Notes workflow are documented in [docs/directing_library_implementation.md](docs/directing_library_implementation.md).
-
 ### Turn screenplay moments into a shared visual language.
 
 **Live demo:** [cultural-reference-web-602486879299.us-central1.run.app](https://cultural-reference-web-602486879299.us-central1.run.app)
@@ -22,7 +20,7 @@ The application identifies which scenes are actually good candidates for a refer
 2. The application detects individual scenes.
 3. Each scene is analyzed for tone, characters, emotions, actions, dramatic or comedic mechanisms, visual characteristics, and reference opportunities.
 4. Choose a scene that needs creative inspiration.
-5. Search for relevant real-world cultural references.
+5. Search for relevant real-world internet meme cultural references.
 6. Review ranked matches and the reasons they fit the scene.
 7. Adjust search preferences, find alternatives, and select references to keep in the workspace.
 
@@ -79,11 +77,9 @@ The scene workspace currently supports filters for:
 
 Instead of searching for articles about lying, Cultural Reference Director looks for visual cultural moments involving caught-in-the-act reactions, guilty expressions, awkward realization, and similar comedic timing. The result is a more useful creative vocabulary for directing the performance.
 
-## Who It Is For
-
-Cultural Reference Director is built for directors, filmmakers, screenwriters, content creators, pre-production teams, and creative groups looking for a shared visual vocabulary.
-
 ## Product Philosophy
+
+![Image](docs\internet_meme_screenshot_examples.jpg)
 
 Cultural Reference Director does not replace creative decision-making. It acts as a visual and cultural brainstorming partner for requests such as:
 
@@ -93,7 +89,7 @@ The goal is to turn that abstract direction into concrete, traceable references 
 
 # Project Setup
 
-[Project Setup](docs\PROJECT_SETUP.md)
+[Project Setup](docs\PROJECT_SETUP.md): architecture, project structure, local development, environment variables, API routes, ADK, Agent Engine, testing, and deployment
 
 ## License
 

@@ -3,7 +3,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Clapperboard, UserRound } from 'lucide-react';
+import { Clapperboard } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 interface AppShellProps {
@@ -18,7 +18,7 @@ export function AppShell({ children }: AppShellProps) {
     return (
         <div className="min-h-screen bg-[var(--canvas)]">
             <header className="h-[4.25rem] border-b border-[#168acd]/20 bg-[var(--navy-950)] text-white shadow-[0_2px_10px_rgba(24,126,181,0.15)]">
-                <div className="mx-auto flex h-full max-w-[1500px] items-center justify-between px-5 sm:px-8">
+                <div className="mx-auto grid h-full max-w-[1500px] grid-cols-[1fr_auto_1fr] items-center px-5 sm:px-8">
                     <Link href="/" className="flex items-center gap-2.5 font-semibold tracking-[-0.02em]">
                         <span className="grid size-9 place-items-center rounded-full bg-white text-[var(--navy-950)] shadow-sm">
                             <Clapperboard size={18} strokeWidth={2.2} aria-hidden="true" />
@@ -26,15 +26,11 @@ export function AppShell({ children }: AppShellProps) {
                         <span className="text-[15px] tracking-[-0.01em]">MemeDirector</span>
                     </Link>
 
-                    <nav aria-label="Primary navigation" className="flex h-full items-center gap-1 sm:gap-7">
+                    <nav aria-label="Primary navigation" className="col-start-2 flex h-full items-center gap-1 sm:gap-7">
                         <NavLink href="/" active={scriptActive}>Script</NavLink>
-                        <NavLink href="/references" active={pathname === '/references'}>References</NavLink>
                         <NavLink href="/library" active={pathname === '/library'}>Library</NavLink>
                     </nav>
 
-                    <div className="grid size-9 place-items-center rounded-full border border-white/30 bg-white/15 text-white" aria-label="Guest profile">
-                        <UserRound size={16} aria-hidden="true" />
-                    </div>
                 </div>
             </header>
             <main className="workspace-bg min-h-[calc(100vh-4.25rem)]">{children}</main>

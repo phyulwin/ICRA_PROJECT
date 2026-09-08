@@ -9,7 +9,6 @@ import {
     ArrowUpRight,
     Clapperboard,
     ImageOff,
-    LoaderCircle,
     Search,
     SlidersHorizontal,
     Square,
@@ -332,17 +331,19 @@ export function ReferenceWorkspace() {
                                 <label className="text-xs font-semibold text-slate-600">Recognition · {preferences.recognition}<input className="mt-3 w-full accent-violet-700" type="range" min="0" max="100" value={preferences.recognition} onChange={(event) => setPreferences({ ...preferences, recognition: Number(event.target.value) })} /><span className="mt-1 flex justify-between text-[10px] font-medium text-slate-400"><span>Niche</span><span>Iconic</span></span></label>
                                 <SelectControl label="Results" value={String(preferences.max_results)} onChange={(value) => setPreferences({ ...preferences, max_results: Number(value) })} options={[["3", "Top 3"], ["4", "Top 4"], ["5", "Top 5"], ["6", "Top 6"]]} />
                             </div>
-                            <button type="button" onClick={isSearching ? cancelSearch : runSearch} disabled={!canSearch} className={`mt-6 inline-flex w-full items-center justify-center gap-2 rounded-lg px-5 py-3 text-sm font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-auto ${isSearching ? 'bg-rose-600 hover:bg-rose-700' : 'bg-violet-700 hover:bg-violet-800'}`}>
-                                {isSearching ? <Square size={15} fill="currentColor" /> : <Search size={16} />}
-                                {isSearching ? 'Cancel Search' : result ? 'Find more references' : 'Find Cultural References'}
-                            </button>
+                            <div className="mt-6 flex flex-wrap items-center gap-4">
+                                <button type="button" onClick={isSearching ? cancelSearch : runSearch} disabled={!canSearch} className={`inline-flex w-full items-center justify-center gap-2 rounded-lg px-5 py-3 text-sm font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-auto ${isSearching ? 'bg-rose-600 hover:bg-rose-700' : 'bg-violet-700 hover:bg-violet-800'}`}>
+                                    {isSearching ? <Square size={15} fill="currentColor" /> : <Search size={16} />}
+                                    {isSearching ? 'Cancel Search' : result ? 'Find more references' : 'Find Cultural References'}
+                                </button>
+                                {isSearching && <span role="status" className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600"><span className="text-lg leading-none text-violet-600">⟳</span>Finding References...</span>}
+                            </div>
                             {item.analysis.reference_queries.length === 0 && <p className="mt-3 text-sm text-slate-500">Gemini did not identify a reference opportunity for this scene.</p>}
                         </section>
 
                         {searchHistory.length > 0 && <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-bold text-slate-950">Search history</h2><div className="mt-4 flex gap-2 overflow-x-auto pb-1">{searchHistory.map((search, index) => <button key={search.search_id} type="button" onClick={() => void openSearch(search.search_id)} className={`min-w-44 rounded-lg border px-3 py-2 text-left text-xs ${search.search_id === selectedSearchId ? 'border-violet-300 bg-violet-50 text-violet-900' : 'border-slate-200 text-slate-600 hover:border-violet-200'}`}><span className="block font-bold">Search {searchHistory.length - index}</span><span className="mt-1 block">{new Date(search.created_at).toLocaleString()}</span><span className="mt-1 block">{search.retained_candidate_count} results · {search.preferences.reference_type}</span></button>)}</div></section>}
                         {refinements.length > 0 && <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-bold text-slate-950">Refinement history</h2><div className="mt-3 space-y-2">{refinements.map((refinement) => <div key={refinement.refinement_id} className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600"><span className="font-semibold text-slate-900">{refinement.user_text}</span><span className="ml-2">{new Date(refinement.created_at).toLocaleString()}</span></div>)}</div></section>}
 
-                        {isSearching && <SearchProgress status={status} />}
                         {status === 'cancelled' && <section role="status" className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5"><p className="font-semibold text-amber-900">Search cancelled</p><p className="mt-1 text-sm text-amber-700">Your previous references remain available. You can start another search now.</p></section>}
                         {error && <section className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-5"><p className="font-semibold text-rose-900">Reference search failed</p><p className="mt-2 text-sm text-rose-700">{error}</p></section>}
                         {result && <ReferenceResults result={result} selectedId={selectedId} onSelect={setSelectedId} onChoose={chooseReference} onSave={saveReference} onDirect={useForDirecting} savedReferenceIds={savedReferenceIds} savingReferenceId={savingReferenceId} directingReferenceId={directingReferenceId} />}
@@ -358,13 +359,6 @@ export function ReferenceWorkspace() {
 // Render one reusable labeled select without coupling values to display labels.
 function SelectControl({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: string[][] }) {
     return <label className="text-xs font-semibold text-slate-600">{label}<select value={value} onChange={(event) => onChange(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-violet-400">{options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}</select></label>;
-}
-
-
-// Show the real backend sequence without claiming unobservable stage completion.
-function SearchProgress({ status }: { status: SearchStatus }) {
-    const stages = ['Understanding creative intent', 'Building search strategy', 'Searching cultural sources', 'Filtering weak references', 'Evaluating visual and performance similarity', 'Ranking best matches'];
-    return <section className="mt-6 rounded-2xl border border-violet-100 bg-violet-50 p-6"><h2 className="flex items-center gap-2 font-bold text-violet-950"><LoaderCircle size={16} className="animate-spin" /> Retrieval pipeline running</h2><p className="mt-2 text-xs text-violet-700">These stages execute on the backend; queued labels do not claim individual completion.</p><div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{stages.map((label) => <div key={label} className="rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm">{label}</div>)}</div><span className="sr-only">{status}</span></section>;
 }
 
 
