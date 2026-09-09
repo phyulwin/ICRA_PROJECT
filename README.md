@@ -6,14 +6,11 @@
 
 **Live demo:** [cultural-reference-web-602486879299.us-central1.run.app](https://cultural-reference-web-602486879299.us-central1.run.app)
 
-Download sample screenplay files from the `docs` directory to test the app:
-
-- Text screenplay files: `docs/*.txt`
-- Fountain screenplay files: `docs/*.fountain`
+Download sample screenplay files from the `docs` directory to test the app: `docs/*.txt`
 
 ## About
 
-![Image](docs/screenshot_homepage.png)
+![Image](docs/Img/screenshot_homepage.png)
 
 Cultural Reference Director is an AI-powered filmmaking assistant that analyzes screenplay scenes and discovers relevant cultural references: memes, viral internet moments, reaction media, film and television moments, anime-style references, and other recognizable visual material. It helps filmmakers move from a written scene to concrete creative inspiration without losing the original dramatic or comedic intent.
 
@@ -25,7 +22,7 @@ The application identifies which scenes are actually good candidates for a refer
 
 ## How It Works
 
-![Image](docs/screenshot_analysis_details_page.png)
+![Image](docs/Img/screenshot_analysis_details_page.png)
 
 1. Upload a screenplay in PDF, TXT, or Fountain format.
 2. The application detects individual scenes.
@@ -88,7 +85,7 @@ Instead of searching for articles about lying, Cultural Reference Director looks
 
 ## Product Philosophy
 
-![Image](docs/internet_meme_screenshot_examples.jpg)
+![Image](docs/Img/internet_meme_screenshot_examples.jpg)
 
 Cultural Reference Director does not replace creative decision-making. It acts as a visual and cultural brainstorming partner for requests such as:
 
