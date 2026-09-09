@@ -101,8 +101,7 @@ class ReferenceSearchPreferences(BaseModel):
     era: ReferenceEra = ReferenceEra.ANY
     match_for: MatchFor = MatchFor.BEST_OVERALL
     recognition: int = Field(default=50, ge=0, le=100)
-    user_intent: str = Field(default="", max_length=500)
-    max_results: int = Field(default=6, ge=3, le=6)
+    max_results: int = Field(default=5, ge=3, le=5)
 
     # Accept persisted v1 filters while normalizing every new request to v2 semantics.
     @model_validator(mode="before")

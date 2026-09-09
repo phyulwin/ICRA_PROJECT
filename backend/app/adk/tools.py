@@ -92,8 +92,7 @@ def search_cultural_references(
     era: ReferenceEra = ReferenceEra.ANY,
     match_for: MatchFor = MatchFor.BEST_OVERALL,
     recognition: int = 50,
-    user_intent: str = "",
-    max_results: int = 6,
+    max_results: int = 5,
 ) -> dict:
     """Search real cultural references through Parallel with at most one retry."""
 
@@ -109,7 +108,6 @@ def search_cultural_references(
                 "era": era,
                 "match_for": match_for,
                 "recognition": recognition,
-                "user_intent": user_intent,
                 "max_results": max_results,
             }
         )

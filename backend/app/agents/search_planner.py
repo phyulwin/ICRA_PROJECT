@@ -1,5 +1,5 @@
 # backend/app/agents/search_planner.py
-"""Gemini SearchPlan generation grounded in scene intelligence and user intent."""
+"""Gemini SearchPlan generation grounded in scene intelligence and filters."""
 
 import json
 import os
@@ -26,9 +26,8 @@ class SearchPlanner:
     """Generate diverse cultural-artifact queries before Parallel Search."""
 
     SYSTEM_INSTRUCTION = """You plan searches for real visual cultural references.
-Combine the screenplay scene, existing analysis, and preferences. The user's natural-
-language intent overrides default creative assumptions but never source traceability or
-safety. Produce 6-12 genuinely diverse concise queries spanning situation, physical
+Combine the screenplay scene, existing analysis, and structured preferences. Produce
+6-12 genuinely diverse concise queries spanning situation, physical
 action, facial reaction, performance, emotional reversal, meme/internet terminology,
 platform-specific, and selected reference-type intent. Use TikTok, Instagram, GIPHY,
 Tenor, Know Your Meme, and other traceable meme or GIF sources; never target Reddit,

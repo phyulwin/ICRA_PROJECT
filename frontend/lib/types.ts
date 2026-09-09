@@ -103,7 +103,6 @@ export interface ReferenceSearchPreferences {
     era: ReferenceEra;
     match_for: MatchFor;
     recognition: number;
-    user_intent: string;
     max_results: number;
 }
 

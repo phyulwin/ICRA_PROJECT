@@ -286,7 +286,6 @@ similarity, and must use informational_article with artifact=false."""
             f"MECHANISM\n{scene_analysis.comedic_or_dramatic_mechanism}\n\n"
             f"MATCH PRIORITY\n{preferences.match_for.value}\n\n"
             f"SEARCH PLAN\n{search_plan.model_dump_json() if search_plan else '{}'}\n\n"
-            f"USER INTENT\n{preferences.user_intent}\n\n"
             f"CANDIDATES\n{json.dumps(payload, ensure_ascii=False)}"
         )
         try:

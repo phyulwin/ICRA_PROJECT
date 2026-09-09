@@ -298,7 +298,7 @@ not include site: filters and do not invent search results or URLs."""
             "film/TV moments showing comparable performance, body language, facial reaction, "
             "blocking, visual action, or comedic timing. Exclude news, advice, business blogs, "
             "educational pages, SEO listicles, Reddit, YouTube, youtu.be, and articles merely discussing the topic. "
-            f"Creative target and explicit user intent: {getattr(plan, 'creative_target', '')}. "
+            f"Creative target: {getattr(plan, 'creative_target', '')}. "
             f"Desired performance: {getattr(plan, 'desired_performance', '')}."
         )
 

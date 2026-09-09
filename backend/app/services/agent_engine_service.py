@@ -89,7 +89,6 @@ class AgentEngineGateway:
             f"reference_type={preferences.reference_type.value}, "
             f"era={preferences.era.value}, match_for={preferences.match_for.value}, "
             f"recognition={preferences.recognition}, max_results={preferences.max_results}, "
-            f"user_intent={preferences.user_intent!r}. "
             "Then call rank_references exactly once when candidates exist. Do not "
             "reanalyze the scene and do not invent results."
         )

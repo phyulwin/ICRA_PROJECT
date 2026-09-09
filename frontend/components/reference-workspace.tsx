@@ -8,6 +8,7 @@ import {
     ArrowLeft,
     ArrowUpRight,
     ImageOff,
+    LoaderCircle,
     Search,
     SlidersHorizontal,
     Square,
@@ -39,8 +40,7 @@ const DEFAULT_PREFERENCES: ReferenceSearchPreferences = {
     era: 'any',
     match_for: 'best_overall',
     recognition: 50,
-    user_intent: '',
-    max_results: 6,
+    max_results: 5,
 };
 
 const SCORE_ROWS: Array<[keyof RankedReference['assessment'], string]> = [
@@ -322,20 +322,19 @@ export function ReferenceWorkspace() {
 
                         <section className="mt-7 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
                             <div className="flex items-center gap-2"><SlidersHorizontal size={18} className="text-violet-600" /><h2 className="font-bold text-slate-950">Search preferences</h2></div>
-                            <label className="mt-5 block text-xs font-semibold text-slate-600">What kind of reference are you looking for?<textarea value={preferences.user_intent} onChange={(event) => setPreferences({ ...preferences, user_intent: event.target.value })} maxLength={500} rows={3} placeholder="An exaggerated anime reaction where someone realizes they got caught lying" className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-normal leading-6 outline-none focus:border-violet-400" /></label>
                             <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
                                 <SelectControl label="Reference type" value={preferences.reference_type} onChange={(value) => setPreferences({ ...preferences, reference_type: value as ReferenceType })} options={[['all', 'All'], ['tiktok_short_form', 'TikTok / Short-form'], ['instagram_reels', 'Instagram / Reels'], ['memes', 'Memes'], ['reaction_gifs', 'Reaction GIFs']]} />
                                 <SelectControl label="Era" value={preferences.era} onChange={(value) => setPreferences({ ...preferences, era: value as ReferenceEra })} options={[['any', 'Any'], ['trending_current', 'Trending / Current'], ['2020_present', '2020–Present'], ['2015_2019', '2015–2019'], ['2010_2014', '2010–2014'], ['2000s', '2000s'], ['pre_2000', 'Pre-2000']]} />
                                 <SelectControl label="Match priority" value={preferences.match_for} onChange={(value) => setPreferences({ ...preferences, match_for: value as MatchFor })} options={[['best_overall', 'Best Overall'], ['performance', 'Performance / Acting'], ['facial_expression', 'Facial Expression'], ['situation', 'Situation'], ['visual_composition', 'Visual Composition'], ['body_language', 'Body Language'], ['comedic_timing', 'Comedic Timing'], ['emotional_beat', 'Emotional Beat'], ['camera_framing', 'Camera / Framing']]} />
                                 <label className="text-xs font-semibold text-slate-600">Recognition · {preferences.recognition}<input className="mt-3 w-full accent-violet-700" type="range" min="0" max="100" value={preferences.recognition} onChange={(event) => setPreferences({ ...preferences, recognition: Number(event.target.value) })} /><span className="mt-1 flex justify-between text-[10px] font-medium text-slate-400"><span>Niche</span><span>Iconic</span></span></label>
-                                <SelectControl label="Results" value={String(preferences.max_results)} onChange={(value) => setPreferences({ ...preferences, max_results: Number(value) })} options={[["3", "Top 3"], ["4", "Top 4"], ["5", "Top 5"], ["6", "Top 6"]]} />
+                                <SelectControl label="Results" value={String(preferences.max_results)} onChange={(value) => setPreferences({ ...preferences, max_results: Number(value) })} options={[["3", "Top 3"], ["4", "Top 4"], ["5", "Top 5"]]} />
                             </div>
                             <div className="mt-6 flex flex-wrap items-center gap-4">
                                 <button type="button" onClick={isSearching ? cancelSearch : runSearch} disabled={!canSearch} className={`inline-flex w-full items-center justify-center gap-2 rounded-lg px-5 py-3 text-sm font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-auto ${isSearching ? 'bg-rose-600 hover:bg-rose-700' : 'bg-violet-700 hover:bg-violet-800'}`}>
                                     {isSearching ? <Square size={15} fill="currentColor" /> : <Search size={16} />}
                                     {isSearching ? 'Cancel Search' : result ? 'Find more references' : 'Find Cultural References'}
                                 </button>
-                                {isSearching && <span role="status" className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600"><span className="text-lg leading-none text-violet-600">⟳</span>Finding References...</span>}
+                                {isSearching && <span role="status" className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600"><LoaderCircle className="animate-spin text-violet-600" size={18} aria-hidden="true" />Finding References...</span>}
                             </div>
                             {item.analysis.reference_queries.length === 0 && <p className="mt-3 text-sm text-slate-500">Gemini did not identify a reference opportunity for this scene.</p>}
                         </section>
