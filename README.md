@@ -1,8 +1,15 @@
-# Cultural Reference Director
+# Meme Director
+
+## Internet Cultural Reference Agent  (ICRA)
 
 ### Turn screenplay moments into a shared visual language.
 
 **Live demo:** [cultural-reference-web-602486879299.us-central1.run.app](https://cultural-reference-web-602486879299.us-central1.run.app)
+
+Download sample screenplay files from the `docs` directory to test the app:
+
+- Text screenplay files: `docs/*.txt`
+- Fountain screenplay files: `docs/*.fountain`
 
 ## About
 
@@ -17,6 +24,8 @@ Directors often know the exact effect they want, but describing the performance,
 The application identifies which scenes are actually good candidates for a reference, searches real web sources, and explains why ranked results fit. It is designed to give creative teams a more precise starting point for discussing the moment they want to make.
 
 ## How It Works
+
+![Image](docs/screenshot_analysis_details_page.png)
 
 1. Upload a screenplay in PDF, TXT, or Fountain format.
 2. The application detects individual scenes.
