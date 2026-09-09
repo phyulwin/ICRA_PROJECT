@@ -43,19 +43,6 @@ const DEFAULT_PREFERENCES: ReferenceSearchPreferences = {
     max_results: 5,
 };
 
-const SCORE_ROWS: Array<[keyof RankedReference['assessment'], string]> = [
-    ['visual_similarity', 'Visual / action'],
-    ['facial_expression_similarity', 'Facial expression'],
-    ['performance_similarity', 'Performance'],
-    ['body_language_similarity', 'Body language'],
-    ['situational_similarity', 'Situation'],
-    ['acting_similarity', 'Performance / body language'],
-    ['timing_similarity', 'Comedic timing'],
-    ['camera_framing_similarity', 'Camera / framing'],
-    ['emotional_similarity', 'Emotion'],
-    ['recognizability', 'Internet recognizability'],
-];
-
 const PLATFORM_LABELS: Record<SourcePlatform, string> = {
     tiktok: 'TikTok',
     instagram: 'Instagram',
@@ -106,9 +93,6 @@ export function ReferenceWorkspace() {
         ) ?? null,
         [sceneId, snapshot],
     );
-    const selected = result?.references.find(
-        (candidate) => candidate.reference.id === selectedId,
-    ) ?? null;
 
     // Restore the latest durable search after backend hydration.
     useEffect(() => {
@@ -346,7 +330,6 @@ export function ReferenceWorkspace() {
                         {status === 'cancelled' && <section role="status" className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5"><p className="font-semibold text-amber-900">Search cancelled</p><p className="mt-1 text-sm text-amber-700">Your previous references remain available. You can start another search now.</p></section>}
                         {error && <section className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-5"><p className="font-semibold text-rose-900">Reference search failed</p><p className="mt-2 text-sm text-rose-700">{error}</p></section>}
                         {result && <ReferenceResults result={result} selectedId={selectedId} onSelect={setSelectedId} onChoose={chooseReference} onSave={saveReference} onDirect={useForDirecting} savedReferenceIds={savedReferenceIds} savingReferenceId={savingReferenceId} directingReferenceId={directingReferenceId} />}
-                        {selected && <ReferenceDetail reference={selected} onSave={saveReference} onDirect={useForDirecting} saved={savedReferenceIds.has(selected.reference.id)} saving={savingReferenceId === selected.reference.id} directing={directingReferenceId === selected.reference.id} />}
                         </fieldset>
                     </div>
                 </section>
@@ -385,14 +368,3 @@ function ReferenceCard({ ranked, selected, onSelect, onChoose, onClear, onSave, 
 }
 
 
-// Show assessment components in a compact, collapsed disclosure panel.
-function ReferenceDetail({ reference: ranked, onSave, onDirect, saved, saving, directing }: { reference: RankedReference; onSave: (id: string) => void; onDirect: (id: string) => void; saved: boolean; saving: boolean; directing: boolean }) {
-    const { reference, assessment } = ranked;
-    return <section className="mt-7 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><details className="group"><summary className="flex cursor-pointer list-none items-center justify-between font-bold text-slate-950"><span>Reference Details</span><span><span className="group-open:hidden">▼</span><span className="hidden group-open:inline">▲</span></span></summary><div className="mt-6 flex flex-col gap-4 border-t border-slate-100 pt-6 sm:flex-row sm:items-start sm:justify-between"><div><h2 className="text-xl font-bold text-slate-950">{reference.title}</h2><a href={reference.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-violet-700 hover:text-violet-900">{reference.source_domain} <ArrowUpRight size={14} /></a></div><span className="text-3xl font-bold text-violet-800">{ranked.overall_score}%</span></div><div className="mt-6 grid gap-6 lg:grid-cols-2"><div><h3 className="text-sm font-bold text-slate-950">Score breakdown</h3><div className="mt-4 space-y-3">{SCORE_ROWS.map(([key, label]) => <ScoreRow key={key} label={label} value={assessment[key] as number} />)}</div></div><div><h3 className="text-sm font-bold text-slate-950">Why the performance matches</h3><p className="mt-3 text-sm leading-6 text-slate-600">{assessment.match_reason}</p><h3 className="mt-5 text-sm font-bold text-slate-950">Artifact evidence</h3><p className="mt-2 text-sm leading-6 text-slate-600">{assessment.artifact_evidence}</p><div className="mt-4 flex flex-wrap gap-2">{assessment.tags.map((tag) => <span key={tag} className="rounded-md bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700">{tag}</span>)}</div></div></div></details><div className="mt-6 flex flex-wrap gap-3 border-t border-slate-100 pt-5"><button type="button" onClick={() => onSave(reference.id)} disabled={saved || saving} className="rounded-lg border border-violet-200 px-4 py-2.5 text-sm font-semibold text-violet-700 disabled:bg-violet-50">{saving ? 'Saving...' : saved ? 'Saved to Library' : 'Save to Library'}</button><button type="button" onClick={() => onDirect(reference.id)} disabled={directing} className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white disabled:bg-slate-300">{directing ? 'Generating guidance...' : 'Use for Directing'}</button></div></section>;
-}
-
-
-// Render one model-assessed component without conflating it with final weighting.
-function ScoreRow({ label, value }: { label: string; value: number }) {
-    return <div><div className="flex justify-between text-xs font-semibold text-slate-600"><span>{label}</span><span>{value}</span></div><div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100"><span className="block h-full rounded-full bg-violet-600" style={{ width: `${value}%` }} /></div></div>;
-}

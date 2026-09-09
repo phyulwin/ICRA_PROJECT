@@ -71,7 +71,7 @@ export default function SceneDetailPage() {
                                     <pre className="whitespace-pre-wrap rounded-xl bg-slate-950 p-5 font-mono text-xs leading-6 text-slate-200">{scene.raw_text}</pre>
                                 </Accordion>
 
-                                <div className="grid gap-5 md:grid-cols-2">
+                                <div className="grid items-start gap-5 md:grid-cols-2">
                                     <Accordion icon={Target} title="Mechanism"><p>{analysis.comedic_or_dramatic_mechanism}</p></Accordion>
                                     <Accordion icon={Users} title="Character Intentions">
                                         <ul className="space-y-3">{analysis.character_intentions.map((entry, index) => <li key={`${entry.character}-${index}`}><strong className="text-slate-900">{entry.character}</strong><span className="mt-0.5 block">{entry.intention}</span></li>)}</ul>
