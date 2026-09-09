@@ -34,6 +34,8 @@ The application identifies which scenes are actually good candidates for a refer
 
 ## Features
 
+![Image](docs/Img/screenshot_references_processing_page.png)
+
 ### Screenplay Intelligence
 
 - PDF, TXT, and Fountain screenplay upload
@@ -43,15 +45,14 @@ The application identifies which scenes are actually good candidates for a refer
 - Character intentions
 - Important actions and visual characteristics
 - Comedic and dramatic mechanisms
-- Reference-opportunity detection, so references are not forced onto every scene
+- Reference-opportunity detection
 
 ### Cultural Reference Discovery
 
 - Real web-based cultural references retrieved through Parallel Search
 - Memes, reaction media, and viral internet-culture moments
-- Film, television, anime, GIF, TikTok, Instagram, YouTube, and other source categories where returned by the search
-- Source-linked results with direct URLs rather than fabricated references
-- Honest handling of partial searches and rejected candidates
+- GIF, TikTok, Instagram, and other source categories where returned by the search
+- Source-linked results with direct URLs
 
 ### Intelligent Reference Matching
 
@@ -69,7 +70,7 @@ References are evaluated across qualities such as:
 
 The scene workspace currently supports filters for:
 
-- Reference type, including memes, internet culture, film/TV, anime, and TikTok
+- Reference type, including memes, internet culture, and TikTok
 - Era, including the 2000s, 2010s, 2020s, and current references
 - Acting, situation, visual, timing, or all matching priorities
 - Mainstream-to-niche obscurity
